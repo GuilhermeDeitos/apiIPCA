@@ -62,6 +62,12 @@ class IPCAService:
                 status_code=404, 
                 detail="IPCA para data inicial ou final não encontrado"
             )
+        
+        if valor < 0:
+          raise HTTPException(
+              status_code=400, 
+              detail="O valor a ser corrigido não pode ser negativo"
+          )
 
         indice_ipca_inicial = self._ipca_dict[data_inicial]
         indice_ipca_final = self._ipca_dict[data_final]
