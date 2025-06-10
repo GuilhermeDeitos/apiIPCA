@@ -1,0 +1,10 @@
+Include
+Lib
+Scripts
+pyvenv.cfg
+.env
+logs
+
+# Python cache files
+__pycache__/
+*.py[cod]
