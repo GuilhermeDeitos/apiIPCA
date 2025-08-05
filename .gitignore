@@ -4,6 +4,7 @@ Scripts
 pyvenv.cfg
 .env
 logs
+venv/
 
 # Python cache files
 __pycache__/
