@@ -75,12 +75,18 @@ class IPCAService:
         # Cálculo da correção
         valor_corrigido = valor * (indice_ipca_final / indice_ipca_inicial)
         valor_corrigido = round(valor_corrigido, 2)
+        
+        # Calcular percentual de correção
+        percentual_correcao = round(((indice_ipca_final / indice_ipca_inicial) - 1) * 100, 4)
 
         return {
             "valor_inicial": valor,
+            "data_inicial": data_inicial,
+            "data_final": data_final,
             "indice_ipca_inicial": indice_ipca_inicial,
             "indice_ipca_final": indice_ipca_final,
-            "valor_corrigido": valor_corrigido
+            "valor_corrigido": valor_corrigido,
+            "percentual_correcao": percentual_correcao
         }
 
 # Instância do serviço para uso nos endpoints
