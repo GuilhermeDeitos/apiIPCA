@@ -3,6 +3,9 @@ from app.services.transparencia_service import transparencia_service
 from app.models.transparencia_model import TransparenciaConsultaParams, TransparenciaResposta
 import aiohttp
 from app.utils.data_loader import API_CRAWLER_URL
+import logging
+
+logger = logging.getLogger(__name__)
         
 
 router = APIRouter(prefix="/transparencia", tags=["Portal da Transparência"])
@@ -26,22 +29,44 @@ async def consultar_transparencia(params: TransparenciaConsultaParams):
     Returns:
         Dados com correção monetária aplicada
     """
-    return await transparencia_service.consultar_dados_corrigidos(
-        params.data_inicio, 
-        params.data_fim
-    )
+    try:
+        return await transparencia_service.consultar_dados_corrigidos(
+            params.data_inicio, 
+            params.data_fim
+        )
+    except Exception as e:
+        error_message = f"Erro ao consultar dados do Portal da Transparência para o período {params.data_inicio} a {params.data_fim}"
+        
+        logger.error(f"Erro na consulta: {str(e)}")
+        
+        # Resposta limpa para o usuário
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": error_message,
+                "periodo": f"{params.data_inicio} a {params.data_fim}",
+                "codigo": "ERRO_CONSULTA_TRANSPARENCIA"
+            }
+        )
 
 @router.get("/status")
 async def status_transparencia():
     """Verifica se a integração com a API_crawler está funcionando"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{API_CRAWLER_URL}/") as response:
+            # Usar endpoint específico da API_crawler
+            async with session.get(f"{API_CRAWLER_URL}/system-status") as response:
                 if response.status == 200:
+                    status_data = await response.json()
                     return {
                         "status": "ok",
                         "api_crawler_disponivel": True,
-                        "url_crawler": API_CRAWLER_URL
+                        "url_crawler": API_CRAWLER_URL,
+                        "detalhes_crawler": {
+                            "slots_disponiveis": status_data.get("slots_disponiveis", 0),
+                            "slots_ocupados": status_data.get("slots_ocupados", 0),
+                            "max_concurrent_scrapers": status_data.get("max_concurrent_scrapers", 0)
+                        }
                     }
                 elif response.status == 503:
                     return {

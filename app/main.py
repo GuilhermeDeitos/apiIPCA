@@ -1,3 +1,4 @@
+import logging
 from app.utils.html_content import html_content
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -14,6 +15,15 @@ app = FastAPI(
     description=settings.APP_DESCRIPTION,
     version=settings.APP_VERSION
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Para console
+    ]
+)
+
 
 # Configurar CORS
 app.add_middleware(

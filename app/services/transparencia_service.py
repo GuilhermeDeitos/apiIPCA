@@ -25,8 +25,9 @@ class TransparenciaService:
             logger.info(f"Consulta concluída. Total de registros: {resultado.get('total_registros', 0)}")
             return resultado
         except Exception as e:
+            # Log do erro apenas para desenvolvedores
             logger.error(f"Erro ao consultar dados: {e}")
-            raise HTTPException(status_code=500, detail=f"Erro ao consultar dados: {str(e)}")
+            raise Exception(f"Erro ao processar dados do Portal da Transparência: {str(e)}")
 
 # Instância do serviço
 transparencia_service = TransparenciaService()
