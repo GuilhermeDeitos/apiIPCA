@@ -375,20 +375,6 @@ def _aplicar_correcao_monetaria_com_media_anual(
         campos_monetarios = _identificar_campos_monetarios(registro)
         campos_corrigidos_registro = []
         
-        # Metadados da correção
-        metadata_correcao = {
-            "ano_base": ano_base,
-            "ano_correcao": ano_correcao,
-            "fator_correcao": fator_correcao,
-            "percentual_correcao": percentual_correcao,
-            "indice_ipca_inicial": indice_ipca_inicial,
-            "indice_ipca_final": indice_ipca_final,
-            "metodo": "indice_ipca_medio_anual",
-            "campos_identificados": campos_monetarios,
-            "campos_corrigidos": [],
-            "aplicado_em": datetime.now().isoformat()
-        }
-        
         # Aplicar correção nos campos monetários
         for campo in campos_monetarios:
             valor_original = _extrair_valor_numerico(registro[campo])
@@ -397,25 +383,29 @@ def _aplicar_correcao_monetaria_com_media_anual(
                 # APLICAR A FÓRMULA CORRETA
                 valor_corrigido = valor_original * fator_correcao
                 
-                # Adicionar campos corrigidos
-                registro_corrigido[f"{campo}_corrigido"] = round(valor_corrigido, 2)
-                registro_corrigido[f"{campo}_original"] = valor_original
-                registro_corrigido[f"{campo}_fator_correcao"] = fator_correcao
-                registro_corrigido[f"{campo}_percentual_correcao"] = percentual_correcao
-                
+                # Substituir campo original pelo valor corrigido
+                registro_corrigido[campo] = round(valor_corrigido, 2)
                 campos_corrigidos_registro.append(campo)
                 campos_corrigidos_total += 1
             else:
                 # Para valores zero ou negativos, manter original
-                registro_corrigido[f"{campo}_corrigido"] = valor_original
-                registro_corrigido[f"{campo}_original"] = valor_original
-                registro_corrigido[f"{campo}_fator_correcao"] = fator_correcao
-                registro_corrigido[f"{campo}_percentual_correcao"] = 0.0
-                registro_corrigido[f"{campo}_observacao"] = "Valor zero ou negativo - correção não aplicada"
+                registro_corrigido[campo] = valor_original
+                if valor_original == 0:
+                    registro_corrigido[f"{campo}_observacao"] = "Valor zero - correção não aplicada"
         
-        # Atualizar metadados com campos realmente corrigidos
-        metadata_correcao["campos_corrigidos"] = campos_corrigidos_registro
-        registro_corrigido["_metadata_correcao"] = metadata_correcao
+        # Metadados da correção (apenas uma vez por registro)
+        registro_corrigido["_metadata_correcao"] = {
+            "ano_base": ano_base,
+            "ano_correcao": ano_correcao,
+            "fator_correcao": fator_correcao,
+            "percentual_correcao": percentual_correcao,
+            "indice_ipca_inicial": indice_ipca_inicial,
+            "indice_ipca_final": indice_ipca_final,
+            "metodo": "indice_ipca_medio_anual",
+            "campos_identificados": campos_monetarios,
+            "campos_corrigidos": campos_corrigidos_registro,
+            "aplicado_em": datetime.now().isoformat()
+        }
         
         if campos_corrigidos_registro:
             registros_com_correcao += 1
@@ -441,6 +431,12 @@ def _copiar_dados_sem_correcao(
         registro_copiado = registro.copy()
         campos_monetarios = _identificar_campos_monetarios(registro)
         
+        # Adiciona observação apenas para campos com valor zero
+        for campo in campos_monetarios:
+            valor_original = _extrair_valor_numerico(registro[campo])
+            if valor_original == 0:
+                registro_copiado[f"{campo}_observacao"] = motivo
+        
         # Adiciona metadados indicando que não foi corrigido
         registro_copiado["_metadata_correcao"] = {
             "ano_base": ano_base,
@@ -453,15 +449,6 @@ def _copiar_dados_sem_correcao(
             "campos_corrigidos": [],
             "aplicado_em": datetime.now().isoformat()
         }
-        
-        # Copia campos monetários sem correção
-        for campo in campos_monetarios:
-            valor_original = _extrair_valor_numerico(registro[campo])
-            registro_copiado[f"{campo}_corrigido"] = valor_original
-            registro_copiado[f"{campo}_original"] = valor_original
-            registro_copiado[f"{campo}_fator_correcao"] = 1.0
-            registro_copiado[f"{campo}_percentual_correcao"] = 0.0
-            registro_copiado[f"{campo}_observacao"] = motivo
         
         dados_sem_correcao.append(registro_copiado)
     
