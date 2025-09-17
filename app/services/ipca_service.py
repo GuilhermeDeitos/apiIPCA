@@ -1,6 +1,7 @@
-from app.utils.data_loader import carregar_dados_ipca
-from typing import Dict, Optional, Tuple
+from app.utils.carregar_ipca import carregar_dados_ipca
+from typing import Dict, Optional, Tuple, List
 from fastapi import HTTPException
+from collections import defaultdict
 
 class IPCAService:
     """Serviço para gerenciar operações relacionadas ao IPCA"""
@@ -35,6 +36,122 @@ class IPCAService:
             return {"data": data_key, "valor": self._ipca_dict[data_key]}
         else:
             raise HTTPException(status_code=404, detail="Data não encontrada")
+    
+    def obter_ipca_periodo(self, periodo: str) -> float:
+        """
+        Obtém o valor do IPCA para um período no formato MM/AAAA.
+        
+        Args:
+            periodo: Período no formato MM/AAAA
+            
+        Returns:
+            Valor do IPCA para o período
+            
+        Raises:
+            ValueError: Se o período não for encontrado
+        """
+        if periodo in self._ipca_dict:
+            return self._ipca_dict[periodo]
+        else:
+            raise ValueError(f"IPCA não encontrado para {periodo}")
+    
+
+    def obter_media_anual(self, ano: str, meses: List[int] = None) -> Dict:
+        """
+        Calcula a média do IPCA para um ano específico.
+        
+        Args:
+            ano: Ano para calcular a média (ex: 2023)
+            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
+
+        Returns:
+            Dicionário com ano, média e meses disponíveis
+        """
+        # Se meses não foi fornecido, usar todos os meses do ano
+        if meses is None:
+            meses = list(range(1, 13))
+        else:
+            # Validar meses fornecidos
+            for mes in meses:
+                if mes < 1 or mes > 12:
+                    raise HTTPException(status_code=400, detail=f"Mês inválido: {mes}")
+
+        valores = []
+        valores_mensais = {}
+        meses_disponiveis = []
+        
+        for mes in meses:
+            periodo = f"{mes:02d}/{ano}"
+            if periodo in self._ipca_dict:
+                valor = self._ipca_dict[periodo]
+                valores.append(valor)
+                valores_mensais[f"{mes:02d}"] = valor
+                meses_disponiveis.append(f"{mes:02d}")
+        
+        if not valores:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Nenhum valor IPCA encontrado para o ano {ano}"
+            )
+        
+        media = sum(valores) / len(valores)
+        
+        return {
+            "ano": ano,
+            "media_ipca": round(media, 4),
+            "total_meses": len(valores),
+            "meses_disponiveis": meses_disponiveis,
+            "valores_mensais": valores_mensais
+        }
+
+    def calcular_media_anual(self, ano: str, meses: List[int] = None) -> float:
+        """
+        Calcula a média do IPCA para um ano específico (retorna apenas o valor).
+        
+        Args:
+            ano: Ano para calcular a média
+            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
+            
+        Returns:
+            Média do IPCA para o ano/meses especificados
+        """
+        # Se meses não foi fornecido, usar todos os meses do ano
+        if meses is None:
+            meses = list(range(1, 13))
+        
+        valores = []
+        for mes in meses:
+            periodo = f"{mes:02d}/{ano}"
+            if periodo in self._ipca_dict:
+                valores.append(self._ipca_dict[periodo])
+        
+        if not valores:
+            raise ValueError(f"Nenhum valor IPCA encontrado para {ano}")
+        
+        return sum(valores) / len(valores)
+
+
+    def obter_medias_multiplos_anos(self, anos: List[str], meses: List[int] = None) -> Dict:
+        """
+        Calcula médias do IPCA para múltiplos anos.
+        
+        Args:
+            anos: Lista de anos
+            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
+
+            
+        Returns:
+            Dicionário com médias por ano
+        """
+        resultado = {}
+        
+        for ano in anos:
+            try:
+                resultado[ano] = self.obter_media_anual(ano, meses)
+            except HTTPException:
+                resultado[ano] = {"erro": f"Dados não disponíveis para {ano}"}
+        
+        return resultado
     
     def corrigir_valor(self, valor: float, mes_inicial: str, ano_inicial: str, 
                       mes_final: str, ano_final: str) -> Dict:
@@ -88,6 +205,17 @@ class IPCAService:
             "valor_corrigido": valor_corrigido,
             "percentual_correcao": percentual_correcao
         }
+    
+    def obter_ipca_por_periodo(self, mes: str, ano: str) -> float:
+        """
+        Obtém o valor do IPCA para um período específico.
+        Método auxiliar para uso interno.
+        """
+        data_key = f"{mes}/{ano}"
+        if data_key in self._ipca_dict:
+            return self._ipca_dict[data_key]
+        else:
+            raise ValueError(f"IPCA não encontrado para {data_key}")
 
 # Instância do serviço para uso nos endpoints
 ipca_service = IPCAService()

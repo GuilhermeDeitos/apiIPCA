@@ -30,3 +30,21 @@ class IPCACorrecaoParams(BaseModel):
     ano_inicial: str = Field(..., example="2020")
     mes_final: str = Field(..., example="12") 
     ano_final: str = Field(..., example="2023")
+    
+class IPCACorrecao(BaseModel):
+    """Modelo para resposta de correção pelo IPCA"""
+    valor_inicial: float = Field(..., example=100.0)
+    data_inicial: str = Field(..., example="01/2020")
+    data_final: str = Field(..., example="12/2023")
+    indice_ipca_inicial: float = Field(..., example=100.0)
+    indice_ipca_final: float = Field(..., example=120.0)
+    valor_corrigido: float = Field(..., example=120.0)
+    percentual_correcao: float = Field(..., example=20.0)
+
+class IPCAMediaAnual(BaseModel):
+    """Modelo para média anual do IPCA"""
+    ano: str = Field(..., example="2023")
+    media_ipca: float = Field(..., example=5.67)
+    total_meses: int = Field(..., example=12)
+    meses_disponiveis: List[str] = Field(..., example=["01", "02", "03"])
+    valores_mensais: Dict[str, float] = Field(..., example={"01": 5.0, "02": 5.5, "03": 6.0})
