@@ -14,7 +14,8 @@ API_CRAWLER_URL = os.environ.get('API_CRAWLER_URL', 'http://localhost:8001')
 
 logger = logging.getLogger(__name__)
 
-async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tipo_correcao: str = "mensal", ipca_referencia: str = None) -> AsyncGenerator[Dict[str, Any], None]:
+async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tipo_correcao: str = "mensal", ipca_referencia: str = None, cancel_event: Optional[asyncio.Event] = None
+) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Consulta dados do Portal da Transparência com suporte a streaming.
     Envia dados parciais conforme disponíveis.
@@ -38,6 +39,11 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
     
     # Obter IPCA base (referência)
     try:
+        # Verificar cancelamento antes de processar IPCA
+        if cancel_event and cancel_event.is_set():
+            logger.info("Cancelamento durante inicialização de IPCA")
+            return
+        
         if tipo_correcao == "anual":
             # Para correção anual, verificar se é só ano ou ano com mês
             if "/" in periodo_base:
@@ -70,6 +76,11 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
     total_dados_nao_processados = []
     
     async with aiohttp.ClientSession() as session:
+        # Verificar cancelamento antes da requisição
+        if cancel_event and cancel_event.is_set():
+            logger.info("Cancelamento antes da requisição inicial")
+            return
+        
         # Fazer a requisição inicial
         payload = {
             "data_inicio": data_inicio,
@@ -78,7 +89,14 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
         
         try:
             logger.debug(f"Fazendo requisição inicial para {API_CRAWLER_URL}/consultar")
-            async with session.post(f"{API_CRAWLER_URL}/consultar", json=payload) as response:
+            # Usar TimeoutError para limitar o tempo de espera
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with session.post(f"{API_CRAWLER_URL}/consultar", json=payload, timeout=timeout) as response:
+                # Verificar cancelamento após requisição
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Cancelamento após requisição inicial")
+                    return
+                
                 if response.status != 200 and response.status != 202:
                     error_text = await response.text()
                     raise Exception(f"Erro na API crawler: Status {response.status} - {error_text}")
@@ -88,6 +106,10 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
                 
                 # Se é processamento síncrono (um único ano)
                 if result.get("processamento") == "sincrono":
+                    if cancel_event and cancel_event.is_set():
+                        logger.info("Cancelamento durante processamento síncrono")
+                        return
+                    
                     logger.info("Processamento síncrono detectado (ano único)")
                     
                     # Para processamento síncrono, os dados vêm organizados por ano
@@ -155,16 +177,37 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
                 elif "id_consulta" in result:
                     logger.info(f"Processamento assíncrono iniciado. ID: {result['id_consulta']}")
                     id_consulta = result["id_consulta"]
+                    
+                    # ADICIONAR: Enviar imediatamente o ID para o frontend
+                    yield {
+                        "status": "iniciando",
+                        "id_consulta": id_consulta,
+                        "mensagem": "Consulta iniciada em processamento assíncrono"
+                    }
+        
                     anos_ja_processados = set()
                     todos_dados = []
                     tentativas_sem_mudanca = 0
-                    max_tentativas_sem_mudanca = 30  # Aumentar timeout para 60 segundos
+                    max_tentativas_sem_mudanca = 60  # Aumentar timeout para 60 segundos
                     
                     while True:
+                        if cancel_event and cancel_event.is_set():
+                            logger.info("Cancelamento durante processamento síncrono")
+                            return
+                    
                         await asyncio.sleep(2)  # Aguardar 2 segundos entre verificações
                         
+                        
+                        status_timeout = aiohttp.ClientTimeout(total=15)
+
                         # Verificar status da consulta
-                        async with session.get(f"{API_CRAWLER_URL}/status-consulta/{id_consulta}") as status_response:
+                        async with session.get(f"{API_CRAWLER_URL}/status-consulta/{id_consulta}", timeout=status_timeout) as status_response:
+                            
+                            # Verificar cancelamento após obter status
+                            if cancel_event and cancel_event.is_set():
+                                logger.info("Cancelamento após verificação de status")
+                                return
+                                
                             if status_response.status != 200:
                                 error_text = await status_response.text()
                                 raise Exception(f"Erro ao verificar status: {error_text}")
@@ -189,6 +232,11 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
                             
                             if dados_disponiveis and dados_por_ano:
                                 novos_anos_processados = False
+                                
+                                # Verificar cancelamento antes de processar cada ano
+                                if cancel_event and cancel_event.is_set():
+                                    logger.info("Cancelamento durante processamento de anos")
+                                    return
                                 
                                 for ano_str, info_ano in dados_por_ano.items():
                                     # Verificar se já processamos esse ano
@@ -342,9 +390,17 @@ async def consultar_transparencia_streaming(data_inicio: str, data_fim: str, tip
                     raise Exception(f"Formato de resposta não reconhecido: {result}")
                     
         except aiohttp.ClientError as e:
+            if cancel_event and cancel_event.is_set():
+                logger.info("Cancelamento durante erro de cliente")
+                return
+            
             logger.error(f"Erro de conexão com API crawler: {e}")
             raise Exception(f"Erro ao conectar com API de coleta de dados: {str(e)}")
         except Exception as e:
+            if cancel_event and cancel_event.is_set():
+                logger.info("Cancelamento durante exceção geral")
+                return
+            
             logger.error(f"Erro no processamento: {e}")
             raise
         

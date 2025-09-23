@@ -1,5 +1,6 @@
+import asyncio
 from app.utils.data_loader import carregar_dados_portal_transparencia, consultar_transparencia_streaming
-from typing import Dict, Any, AsyncGenerator
+from typing import Dict, Any, AsyncGenerator, Optional
 from fastapi import HTTPException
 import logging
 
@@ -39,7 +40,10 @@ class TransparenciaService:
     
     async def consultar_dados_streaming(self, data_inicio: str, data_fim: str,
                                       tipo_correcao: str = "mensal",
-                                      ipca_referencia: str = None) -> AsyncGenerator[Dict[str, Any], None]:
+                                      ipca_referencia: str = None, 
+                                    cancel_event: Optional[asyncio.Event] = None
+
+                                      ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Consulta dados com suporte a streaming para respostas parciais.
         
@@ -48,27 +52,54 @@ class TransparenciaService:
             data_fim: Data final no formato "MM/YYYY"
             tipo_correcao: Tipo de correção ("mensal" ou "anual")
             ipca_referencia: Período de referência para o IPCA
-            
+            cancel_event: Evento assíncrono para controlar cancelamento
+
         Yields:
             Chunks de dados conforme disponíveis
         """
         try:
             logger.info(f"Iniciando consulta streaming: {data_inicio} a {data_fim}")
             
+            # Verificar cancelamento antes de iniciar
+            if cancel_event and cancel_event.is_set():
+                logger.info("Consulta cancelada antes de iniciar")
+                yield {
+                    "status": "cancelado",
+                    "mensagem": "Consulta cancelada pelo cliente"
+                }
+                return
+                
             async for chunk in consultar_transparencia_streaming(
                 data_inicio, 
                 data_fim,
                 tipo_correcao,
-                ipca_referencia
+                ipca_referencia,
+                cancel_event  # Propagar o evento de cancelamento
             ):
+                # Verificar cancelamento antes de cada yield
+                if cancel_event and cancel_event.is_set():
+                    logger.info("Consulta cancelada durante streaming")
+                    yield {
+                        "status": "cancelado",
+                        "mensagem": "Consulta cancelada pelo cliente"
+                    }
+                    return
+                    
                 yield chunk
                 
         except Exception as e:
-            logger.error(f"Erro no streaming: {e}")
-            yield {
-                "status": "erro",
-                "erro": str(e)
-            }
+            if cancel_event and cancel_event.is_set():
+                logger.info("Consulta cancelada durante exceção")
+                yield {
+                    "status": "cancelado",
+                    "mensagem": "Consulta cancelada pelo cliente"
+                }
+            else:
+                logger.error(f"Erro no streaming: {e}")
+                yield {
+                    "status": "erro",
+                    "erro": str(e)
+                }
 
 # Instância do serviço
 transparencia_service = TransparenciaService()
