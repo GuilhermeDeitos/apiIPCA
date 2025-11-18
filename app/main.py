@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import ipca as ipca_router
 from app.routes import transparencia as transparencia_router
+from app.routes import email as email_router
 from app.core.config import settings
 from pyngrok import ngrok
 import uvicorn
@@ -37,6 +38,7 @@ app.add_middleware(
 # Incluir rotas
 app.include_router(ipca_router.router)
 app.include_router(transparencia_router.router)
+app.include_router(email_router.router)
 
 def configure_ngrok():
     """Configura e inicia o túnel ngrok"""

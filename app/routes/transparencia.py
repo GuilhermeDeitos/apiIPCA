@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from app.services.transparencia_service import transparencia_service
 from app.models.transparencia_model import TransparenciaConsultaParams, TransparenciaResposta
 import aiohttp
-from app.utils.data_loader import API_CRAWLER_URL
+from app.utils.api_client import API_CRAWLER_URL 
 import logging
 import json
 

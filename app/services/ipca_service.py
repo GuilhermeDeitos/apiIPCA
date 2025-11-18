@@ -55,7 +55,27 @@ class IPCAService:
         else:
             raise ValueError(f"IPCA não encontrado para {periodo}")
     
-
+    def obter_ipca_por_periodo(self, mes: str, ano: str) -> float:
+        """
+        Obtém o valor do IPCA para um período específico (mes/ano separados).
+        Método auxiliar para uso interno.
+        
+        Args:
+            mes: Mês (01-12)
+            ano: Ano (ex: 2023)
+            
+        Returns:
+            Valor do IPCA
+            
+        Raises:
+            ValueError: Se não encontrado
+        """
+        data_key = f"{mes}/{ano}"
+        if data_key in self._ipca_dict:
+            return self._ipca_dict[data_key]
+        else:
+            raise ValueError(f"IPCA não encontrado para {data_key}")
+    
     def obter_media_anual(self, ano: str, meses: List[int] = None) -> Dict:
         """
         Calcula a média do IPCA para um ano específico.
@@ -130,7 +150,6 @@ class IPCAService:
         
         return sum(valores) / len(valores)
 
-
     def obter_medias_multiplos_anos(self, anos: List[str], meses: List[int] = None) -> Dict:
         """
         Calcula médias do IPCA para múltiplos anos.
@@ -138,7 +157,6 @@ class IPCAService:
         Args:
             anos: Lista de anos
             meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
-
             
         Returns:
             Dicionário com médias por ano
@@ -169,7 +187,7 @@ class IPCAService:
             Dicionário com valores e índices
             
         Raises:
-            HTTPException: Se os índices não forem encontrados
+            HTTPException: Se os índices não forem encontrados ou inválidos
         """
         data_inicial = f"{mes_inicial}/{ano_inicial}"
         data_final = f"{mes_final}/{ano_final}"
@@ -181,13 +199,26 @@ class IPCAService:
             )
         
         if valor < 0:
-          raise HTTPException(
-              status_code=400, 
-              detail="O valor a ser corrigido não pode ser negativo"
-          )
+            raise HTTPException(
+                status_code=400, 
+                detail="O valor a ser corrigido não pode ser negativo"
+            )
 
         indice_ipca_inicial = self._ipca_dict[data_inicial]
         indice_ipca_final = self._ipca_dict[data_final]
+
+        # Validar índices IPCA
+        if indice_ipca_inicial <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"IPCA inicial inválido ({indice_ipca_inicial}). Deve ser maior que zero."
+            )
+        
+        if indice_ipca_final <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"IPCA final inválido ({indice_ipca_final}). Deve ser maior que zero."
+            )
 
         # Cálculo da correção
         valor_corrigido = valor * (indice_ipca_final / indice_ipca_inicial)
@@ -206,16 +237,60 @@ class IPCAService:
             "percentual_correcao": percentual_correcao
         }
     
-    def obter_ipca_por_periodo(self, mes: str, ano: str) -> float:
+    # ========== NOVOS MÉTODOS UTILITÁRIOS ==========
+    
+    @staticmethod
+    def converter_valor_monetario_string(valor_str: str) -> float:
         """
-        Obtém o valor do IPCA para um período específico.
-        Método auxiliar para uso interno.
+        Converte um valor monetário em formato string brasileiro para float.
+        
+        Args:
+            valor_str: Valor no formato brasileiro (ex: "1.200,00" ou "-1.200,00")
+            
+        Returns:
+            Valor como float
+            
+        Examples:
+            >>> IPCAService.converter_valor_monetario_string("1.200,00")
+            1200.0
+            >>> IPCAService.converter_valor_monetario_string("-500,50")
+            -500.5
         """
-        data_key = f"{mes}/{ano}"
-        if data_key in self._ipca_dict:
-            return self._ipca_dict[data_key]
-        else:
-            raise ValueError(f"IPCA não encontrado para {data_key}")
+        # Remover formatação brasileira (pontos de milhar e vírgula decimal)
+        valor_str = str(valor_str).replace(".", "").replace(",", ".")
+        
+        # Tratar valores negativos
+        is_negative = valor_str.startswith("-")
+        if is_negative:
+            valor_str = valor_str[1:]
+        
+        valor = float(valor_str)
+        
+        return -valor if is_negative else valor
+    
+    @staticmethod
+    def formatar_valor_brasileiro(valor: float) -> str:
+        """
+        Formata um valor float para o padrão monetário brasileiro.
+        
+        Args:
+            valor: Valor numérico
+            
+        Returns:
+            String formatada no padrão BR (ex: "1.200,00")
+            
+        Examples:
+            >>> IPCAService.formatar_valor_brasileiro(1200.0)
+            "1.200,00"
+            >>> IPCAService.formatar_valor_brasileiro(-500.5)
+            "-500,50"
+        """
+        # Formatar com 2 casas decimais e separadores
+        formatted = f"{valor:,.2f}"
+        
+        # Trocar separadores (inglês -> português)
+        # 1,200.00 -> 1.200,00
+        return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # Instância do serviço para uso nos endpoints
 ipca_service = IPCAService()
