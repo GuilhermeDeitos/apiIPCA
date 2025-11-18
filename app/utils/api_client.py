@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-API_CRAWLER_URL = os.environ.get('API_CRAWLER_URL', 'http://localhost:8001')
+API_CRAWLER_URL = os.environ.get('API_CRAWLER_URL', 'http://api-scraper:8000')
 
 
 class ApiCrawlerClient:

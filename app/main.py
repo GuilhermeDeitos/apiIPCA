@@ -64,8 +64,8 @@ async def root():
     
 if __name__ == "__main__":
     # Configurar ngrok em ambiente de desenvolvimento
-    if settings.ENVIRONMENT == "development":
-        configure_ngrok()
+    # if settings.ENVIRONMENT == "development":
+    #     configure_ngrok()
     
     # Iniciar servidor
     uvicorn.run(

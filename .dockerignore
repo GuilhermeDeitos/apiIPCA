@@ -1,0 +1,15 @@
+# Ignorar ambiente virtual
+venv/
+.venv/
+
+# Ignorar cache e artefatos de build
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+htmlcov/
+
+# Ignorar Logs e Dados Temporários
+*.log
+.DS_Store
+*.tmp

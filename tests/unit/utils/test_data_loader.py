@@ -87,8 +87,8 @@ class TestFuncoesPublicas:
             yield {
                 "status": "parcial",
                 "ano_processado": 2020,
-                "total_registros_ano": 5,  # ✅ Campo obrigatório
-                "total_nao_processados_ano": 0,  # ✅ Campo obrigatório
+                "total_registros_ano": 5,  # Campo obrigatório
+                "total_nao_processados_ano": 0,  # Campo obrigatório
                 "dados": []
             }
             # Evento completo
