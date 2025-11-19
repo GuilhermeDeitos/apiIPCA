@@ -2,9 +2,9 @@ name: CI/CD API IPCA
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   IMAGE_NAME: tcc-api-ipca
@@ -14,9 +14,6 @@ env:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./apiIPCA
     permissions:
       contents: read
       packages: write
@@ -39,12 +36,11 @@ jobs:
       - name: Run Tests
         run: |
           if [ -d "tests" ]; then
-            pytest tests/ -v
+            pytest tests/ -v --cov=app --cov-report=term
           else
             echo "Pasta de testes não encontrada."
           fi
 
-      # BUILD & PUSH
       - name: Log in to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v3
@@ -61,7 +57,7 @@ jobs:
         if: github.event_name == 'push'
         uses: docker/build-push-action@v5
         with:
-          context: ./apiIPCA
+          context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
@@ -70,7 +66,7 @@ jobs:
   deploy:
     needs: test-and-build
     if: github.event_name == 'push'
-    runs-on: [self-hosted, linux] # Runner na VM
+    runs-on: [self-hosted, linux]
     steps:
       - name: Deploy Local
         run: |
