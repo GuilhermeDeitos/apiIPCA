@@ -111,10 +111,10 @@ jobs:
       - name: Deploy Local
         run: |
           echo "Atualizando API IPCA..."
-          docker-compose -f ~/tcc-deploy/docker-compose.yml stop ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml rm -f ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml pull ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml up -d ${{ env.SERVICE_NAME }}
+          docker compose -f ~/tcc-deploy/docker-compose.yml stop ${{ env.SERVICE_NAME }}
+          docker compose -f ~/tcc-deploy/docker-compose.yml rm -f ${{ env.SERVICE_NAME }}
+          docker compose -f ~/tcc-deploy/docker-compose.yml pull ${{ env.SERVICE_NAME }}
+          docker compose -f ~/tcc-deploy/docker-compose.yml up -d ${{ env.SERVICE_NAME }}
           docker image prune -f
       
       - name: Wait for startup
@@ -123,9 +123,9 @@ jobs:
       - name: Verify Email Config
         run: |
           echo "=== Verificando configuração de email ==="
-          docker-compose -f ~/tcc-deploy/docker-compose.yml logs --tail=20 ${{ env.SERVICE_NAME }} | grep -i "email\|smtp" || true
+          docker compose -f ~/tcc-deploy/docker-compose.yml logs --tail=20 ${{ env.SERVICE_NAME }} | grep -i "email\|smtp" || true
       
       - name: Verify Deployment
         run: |
           echo "=== Status final ==="
-          docker-compose -f ~/tcc-deploy/docker-compose.yml ps ${{ env.SERVICE_NAME }}
+          docker compose -f ~/tcc-deploy/docker-compose.yml ps ${{ env.SERVICE_NAME }}
