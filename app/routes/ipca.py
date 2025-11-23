@@ -199,10 +199,10 @@ async def get_ipca_medias_multiplos_anos(
 async def corrigir_valor_ipca(
     request: Request,
     valor: float = Query(..., description="Valor a ser corrigido"),
-    mes_inicial: str = Query(..., examples=["01"], description="Mês inicial com dois dígitos (01-12)"),
-    ano_inicial: str = Query(..., examples=["2020"], description="Ano inicial"),
-    mes_final: str = Query(..., examples=["12"], description="Mês final com dois dígitos (01-12)"),
-    ano_final: str = Query(..., examples=["2023"], description="Ano final")
+    mes_inicial: str = Query(..., example="01", description="Mês inicial com dois dígitos (01-12)"),
+    ano_inicial: str = Query(..., example="2020", description="Ano inicial"),
+    mes_final: str = Query(..., example="12", description="Mês final com dois dígitos (01-12)"),
+    ano_final: str = Query(..., example="2023", description="Ano final")
 ):
     """
     Corrige um valor monetário pela variação do IPCA entre duas datas.
