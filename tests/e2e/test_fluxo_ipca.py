@@ -8,7 +8,9 @@ client = TestClient(app)
 class TestFluxoCompletoIPCA:
     """Testes E2E para fluxo completo de consulta IPCA."""
     
-    def test_fluxo_consulta_e_correcao_valor(self):
+    
+    
+    def test_fluxo_consulta_e_correcao_valor(self, mocker): 
         """
         Testa fluxo completo:
         1. Listar todos os dados IPCA
@@ -45,46 +47,32 @@ class TestFluxoCompletoIPCA:
             }
         )
         
+        # Step 1: Listar todos os dados
         response = client.get("/ipca")
         assert response.status_code == 200
         dados_ipca = response.json()
         assert "data" in dados_ipca
         assert len(dados_ipca["data"]) > 0
         
+        # Step 2: Consultar IPCA de um período específico
         response = client.get("/ipca/filtro?mes=01&ano=2020")
         assert response.status_code == 200
         dados_mes = response.json()
         assert dados_mes["data"] == "01/2020"
         assert "valor" in dados_mes
         
+        # Step 3: Corrigir um valor monetário
         response = client.get(
             "/ipca/corrigir?valor=1000&mes_inicial=01&ano_inicial=2020"
             "&mes_final=12&ano_final=2023"
         )
         assert response.status_code == 200
-        ipca_especifico = response.json()
-        assert ipca_especifico["data"] == primeira_data
-        assert "valor" in ipca_especifico
-        
-        # Step 3: Corrigir um valor usando datas válidas
-        # Selecionar duas datas para correção
-        datas_disponiveis = list(dados_ipca["data"].keys())
-        if len(datas_disponiveis) >= 2:
-            data_inicial = datas_disponiveis[0]
-            data_final = datas_disponiveis[-1]
-            
-            mes_inicial, ano_inicial = data_inicial.split("/")
-            mes_final, ano_final = data_final.split("/")
-            
-            response = client.get(
-                f"/ipca/corrigir?valor=1000&mes_inicial={mes_inicial}&ano_inicial={ano_inicial}"
-                f"&mes_final={mes_final}&ano_final={ano_final}"
-            )
-            assert response.status_code == 200
-            correcao = response.json()
-            assert "valor_corrigido" in correcao
-            assert correcao["valor_inicial"] == 1000.0
-    
+        correcao = response.json()
+        assert "valor_corrigido" in correcao
+        assert correcao["valor_inicial"] == 1000.0
+        assert correcao["data_inicial"] == "01/2020"
+        assert correcao["data_final"] == "12/2023"
+
     def test_fluxo_historico_periodo(self, mocker):
         """Testa consulta de histórico de período específico."""
         mock_historico = {
@@ -98,6 +86,33 @@ class TestFluxoCompletoIPCA:
             return_value={"info": "Mock", "data": mock_historico}
         )
         
+        # Mockar média anual
+        mocker.patch(
+            'app.routes.ipca.ipca_service.obter_media_anual',
+            return_value={
+                "ano": "2020",
+                "media_ipca": 100.5,
+                "total_meses": 3,
+                "meses_disponiveis": ["01", "02", "03"],
+                "valores_mensais": {"01": 100.0, "02": 101.5, "03": 102.0}
+            }
+        )
+        
+        # Mockar médias múltiplos anos
+        mocker.patch(
+            'app.routes.ipca.ipca_service.obter_medias_multiplos_anos',
+            return_value={
+                "2020": {
+                    "ano": "2020",
+                    "media_ipca": 100.5,
+                    "total_meses": 3,
+                    "meses_disponiveis": ["01", "02", "03"],
+                    "valores_mensais": {"01": 100.0, "02": 101.5, "03": 102.0}
+                }
+            }
+        )
+        
+        # Step 1: Listar todos os dados
         response = client.get("/ipca")
         assert response.status_code == 200
         dados = response.json()
