@@ -72,49 +72,10 @@ jobs:
     if: github.event_name == 'push'
     runs-on: [self-hosted, linux]
     steps:
-      - name: Create .env file
-        run: |
-          echo "Creating .env for API IPCA..."
-          cat > ~/tcc-deploy/.env.api-ipca << EOF
-          # Environment
-          ENVIRONMENT=${{ vars.ENVIRONMENT }}
-          SCRAPER_API_URL=${{secrets.API_CRAWLER_URL}}
-          
-          # Email Configuration (public)
-          SMTP_SERVER=${{ vars.SMTP_SERVER }}
-          SMTP_PORT=${{ vars.SMTP_PORT }}
-          
-          
-          # Email Configuration (sensitive)
-          SENDER_PASSWORD=${{ secrets.SENDER_PASSWORD }}
-          RECEIVER_EMAIL=${{ secrets.RECEIVER_EMAIL }}
-          SENDER_EMAIL=${{ secrets.SENDER_EMAIL }}
-
-          EOF
-          
-          # Proteger arquivo
-          chmod 600 ~/tcc-deploy/.env.api-ipca
-          
-          echo ".env created successfully"
-      
       - name: Deploy Local
         run: |
+          cd ~/tcc-deploy
           echo "Atualizando API IPCA..."
-          docker-compose -f ~/tcc-deploy/docker-compose.yml stop ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml rm -f ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml pull ${{ env.SERVICE_NAME }}
-          docker-compose -f ~/tcc-deploy/docker-compose.yml up -d ${{ env.SERVICE_NAME }}
+          docker-compose pull ${{ env.SERVICE_NAME }}
+          docker-compose up -d --no-deps ${{ env.SERVICE_NAME }}
           docker image prune -f
-      
-      - name: Wait for startup
-        run: sleep 10
-      
-      - name: Verify Email Config
-        run: |
-          echo "=== Verificando configuração de email ==="
-          docker-compose -f ~/tcc-deploy/docker-compose.yml logs --tail=20 ${{ env.SERVICE_NAME }} | grep -i "email\|smtp" || true
-      
-      - name: Verify Deployment
-        run: |
-          echo "=== Status final ==="
-          docker-compose -f ~/tcc-deploy/docker-compose.yml ps ${{ env.SERVICE_NAME }}
