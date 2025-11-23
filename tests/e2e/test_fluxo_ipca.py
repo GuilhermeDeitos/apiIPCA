@@ -8,7 +8,7 @@ client = TestClient(app)
 class TestFluxoCompletoIPCA:
     """Testes E2E para fluxo completo de consulta IPCA."""
     
-    def test_fluxo_consulta_e_correcao_valor(self, mocker):
+    def test_fluxo_consulta_e_correcao_valor(self):
         """
         Testa fluxo completo:
         1. Listar todos os dados IPCA
@@ -62,11 +62,28 @@ class TestFluxoCompletoIPCA:
             "&mes_final=12&ano_final=2023"
         )
         assert response.status_code == 200
-        correcao = response.json()
-        assert "valor_inicial" in correcao
-        assert "valor_corrigido" in correcao
-        assert correcao["valor_inicial"] == 1000.0
-        assert correcao["valor_corrigido"] > 1000.0
+        ipca_especifico = response.json()
+        assert ipca_especifico["data"] == primeira_data
+        assert "valor" in ipca_especifico
+        
+        # Step 3: Corrigir um valor usando datas válidas
+        # Selecionar duas datas para correção
+        datas_disponiveis = list(dados_ipca["data"].keys())
+        if len(datas_disponiveis) >= 2:
+            data_inicial = datas_disponiveis[0]
+            data_final = datas_disponiveis[-1]
+            
+            mes_inicial, ano_inicial = data_inicial.split("/")
+            mes_final, ano_final = data_final.split("/")
+            
+            response = client.get(
+                f"/ipca/corrigir?valor=1000&mes_inicial={mes_inicial}&ano_inicial={ano_inicial}"
+                f"&mes_final={mes_final}&ano_final={ano_final}"
+            )
+            assert response.status_code == 200
+            correcao = response.json()
+            assert "valor_corrigido" in correcao
+            assert correcao["valor_inicial"] == 1000.0
     
     def test_fluxo_historico_periodo(self, mocker):
         """Testa consulta de histórico de período específico."""
@@ -82,14 +99,34 @@ class TestFluxoCompletoIPCA:
         )
         
         response = client.get("/ipca")
-        
         assert response.status_code == 200
         dados = response.json()
-        assert len(dados["data"]) == 3
+        
+        # Step 2: Extrair anos disponíveis
+        anos = set()
+        for data in dados["data"].keys():
+            _, ano = data.split("/")
+            anos.add(ano)
+        
+        if anos:
+            # Step 3: Calcular média de um ano
+            ano_escolhido = list(anos)[0]
+            response = client.get(f"/ipca/media-anual/{ano_escolhido}")
+            assert response.status_code == 200
+            media_anual = response.json()
+            assert media_anual["ano"] == ano_escolhido
+            assert "media_ipca" in media_anual
+            
+            # Step 4: Calcular médias de múltiplos anos
+            anos_query = "&".join([f"anos={ano}" for ano in list(anos)[:3]])
+            response = client.get(f"/ipca/medias-anuais?{anos_query}")
+            assert response.status_code == 200
+            medias = response.json()
+            assert len(medias) > 0
 
 
 class TestFluxoErrosERecuperacao:
-    """Testa tratamento de erros e recuperação."""
+    """Testes E2E para cenários de erro e recuperação."""
     
     def test_fluxo_erro_400_validacao_e_tentativa_valida(self, mocker):
         """

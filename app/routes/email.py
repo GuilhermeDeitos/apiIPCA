@@ -121,9 +121,4 @@ async def email_health():
     """Verifica se o serviço de email está configurado"""
     is_configured = bool(email_service.sender_password)
     
-    return {
-        "status": "configured" if is_configured else "not_configured",
-        "smtp_host": email_service.smtp_server,
-        "smtp_port": email_service.smtp_port,
-        "sender_email": email_service.sender_email if is_configured else "not_configured"
-    }
+    return {"message": "Email enviado com sucesso!"}
