@@ -49,17 +49,17 @@ def validar_mes(mes: str) -> str:
     Raises:
         HTTPException: Se mês inválido
     """
-    mes = sanitizar_input(mes, 2)
-    
-    # Verificar formato
-    if not re.match(r'^\d{1,2}$', mes):
+    # Verificar formato antes de sanitizar/truncar
+    if not isinstance(mes, str) or not re.fullmatch(r'\d{1,2}', mes):
         raise HTTPException(status_code=400, detail="Formato de mês inválido. Use 01-12")
     
     mes_int = int(mes)
     if mes_int < 1 or mes_int > 12:
         raise HTTPException(status_code=400, detail="Mês deve estar entre 01 e 12")
     
-    return f"{mes_int:02d}"
+    # Opcional: sanitizar para remover caracteres de controle, sem truncar
+    mes_sanitizado = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', f"{mes_int:02d}")
+    return mes_sanitizado
 
 
 def validar_ano(ano: str) -> str:
