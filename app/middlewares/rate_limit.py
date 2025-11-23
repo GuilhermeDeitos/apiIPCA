@@ -118,7 +118,8 @@ class RateLimiter:
                     "error": "Rate limit exceeded",
                     "message": f"Máximo de {self.requests_per_minute} requisições por minuto",
                     "retry_after": "60 segundos"
-                }
+                },
+                headers={"Retry-After": "60"}
             )
         
         # Adicionar requisição atual
