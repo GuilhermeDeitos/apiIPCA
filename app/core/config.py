@@ -19,7 +19,5 @@ class Settings(BaseSettings):
     # Ambiente (development, staging, production)
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "")
     
-    # Configuração do Ngrok
-    NGROK_AUTH_TOKEN: str = os.getenv("NGROK_AUTH_TOKEN", "")
 
 settings = Settings()

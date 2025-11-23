@@ -39,34 +39,13 @@ app.add_middleware(
 app.include_router(ipca_router.router)
 app.include_router(transparencia_router.router)
 app.include_router(email_router.router)
-
-def configure_ngrok():
-    """Configura e inicia o túnel ngrok"""
-    if settings.NGROK_AUTH_TOKEN:
-        ngrok.set_auth_token(settings.NGROK_AUTH_TOKEN)
-        try:
-            # Encerra túneis existentes
-            ngrok.kill()
-            # Cria novo túnel
-            public_url = ngrok.connect(settings.APP_PORT)
-            print(f"Ngrok Tunnel URL: {public_url}")
-            return public_url
-        except Exception as e:
-            print(f"Erro ao iniciar ngrok: {e}")
-            return None
-    else:
-        print("AVISO: Token do Ngrok não configurado.")
-        return None
     
 @app.get("/", response_class=HTMLResponse, status_code=200)
 async def root():
     return html_content
     
 if __name__ == "__main__":
-    # Configurar ngrok em ambiente de desenvolvimento
-    # if settings.ENVIRONMENT == "development":
-    #     configure_ngrok()
-    
+
     # Iniciar servidor
     uvicorn.run(
         "app.main:app", 
