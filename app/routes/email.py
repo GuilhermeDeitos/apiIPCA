@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException, Body, status
+from fastapi import APIRouter, HTTPException, Body, status, Request
 from pydantic import BaseModel, EmailStr, Field, validator
 from ..services.email_service import email_service
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/email", tags=["email"])
 
@@ -13,6 +16,8 @@ class ContactRequest(BaseModel):
     @validator('name')
     def validate_name(cls, v):
         """Valida nome"""
+        logger.info(f"Validando nome: {v}")
+        
         if not v or not v.strip():
             raise ValueError('Nome não pode estar vazio')
         
@@ -21,6 +26,7 @@ class ContactRequest(BaseModel):
         
         # Permitir apenas letras, espaços, hífens e apóstrofos
         if not re.match(r"^[a-zA-ZÀ-ÿ\s'-]+$", v):
+            logger.error(f"Nome com caracteres inválidos: {v}")
             raise ValueError('Nome contém caracteres inválidos')
         
         if len(v) < 2:
@@ -29,11 +35,14 @@ class ContactRequest(BaseModel):
         if len(v) > 100:
             raise ValueError('Nome muito longo (máximo 100 caracteres)')
         
+        logger.info(f"Nome validado com sucesso: {v}")
         return v
     
     @validator('message')
     def validate_message(cls, v):
         """Valida mensagem"""
+        logger.info(f"Validando mensagem (tamanho: {len(v) if v else 0})")
+        
         if not v or not v.strip():
             raise ValueError('Mensagem não pode estar vazia')
         
@@ -50,8 +59,10 @@ class ContactRequest(BaseModel):
         # Verificar se não é spam (muitos links)
         urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', v)
         if len(urls) > 3:
+            logger.error(f"Mensagem com muitos links ({len(urls)})")
             raise ValueError('Mensagem contém muitos links. Máximo de 3 links permitidos.')
         
+        logger.info(f"Mensagem validada com sucesso (tamanho final: {len(v)})")
         return v
 
 @router.post(
@@ -60,11 +71,12 @@ class ContactRequest(BaseModel):
     responses={
         200: {"description": "Email enviado com sucesso"},
         400: {"description": "Dados inválidos"},
+        422: {"description": "Erro de validação"},
         500: {"description": "Erro no servidor de email"},
         503: {"description": "Serviço de email temporariamente indisponível"}
     }
 )
-async def send_contact_email(contact: ContactRequest = Body(...)):
+async def send_contact_email(request: Request, contact: ContactRequest = Body(...)):
     """
     Envia um email de contato para o endereço configurado.
     
@@ -74,6 +86,10 @@ async def send_contact_email(contact: ContactRequest = Body(...)):
     - Mensagem: 10-5000 caracteres, máximo 3 links
     """
     
+    # Log da requisição recebida
+    logger.info(f"Requisição de contato recebida de IP: {request.client.host}")
+    logger.info(f"Nome: {contact.name}, Email: {contact.email}")
+    
     success, message = email_service.send_contact_email(
         name=contact.name,
         email=contact.email,
@@ -81,6 +97,7 @@ async def send_contact_email(contact: ContactRequest = Body(...)):
     )
     
     if not success:
+        logger.error(f"Falha ao enviar email: {message}")
         # Determinar código de erro apropriado
         if "configuração" in message.lower():
             raise HTTPException(
@@ -93,6 +110,7 @@ async def send_contact_email(contact: ContactRequest = Body(...)):
                 detail=message
             )
     
+    logger.info("Email enviado com sucesso!")
     return {
         "success": True,
         "message": message
