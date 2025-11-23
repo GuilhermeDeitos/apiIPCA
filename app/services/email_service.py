@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 class EmailService:
     def __init__(self):
         """Inicializa o serviço de email com as configurações do servidor SMTP."""
-        self.smtp_server = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.sender_email = os.getenv("SMTP_USER", "seu-email@gmail.com")
-        self.sender_password = os.getenv("SMTP_PASSWORD", "")
-        self.receiver_email = os.getenv("RECEIVER_EMAIL", os.getenv("SMTP_USER", ""))
+        self.sender_email = os.getenv("SENDER_EMAIL", "seu-email@gmail.com")
+        self.sender_password = os.getenv("SENDER_PASSWORD", "")
+        self.receiver_email = os.getenv("RECEIVER_EMAIL", os.getenv("SENDER_EMAIL", ""))
         
         # Log de inicialização (sem mostrar senha)
         logger.info(f"Email service initialized - SMTP: {self.smtp_server}:{self.smtp_port}")
@@ -87,77 +87,77 @@ class EmailService:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contato SAD-UEPR</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; -webkit-font-smoothing: antialiased;">
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f4f4; padding: 40px 0;">
         <tr>
             <td align="center">
-                <table cellpadding="0" cellspacing="0" border="0" width="600" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <table cellpadding="0" cellspacing="0" border="0" width="600" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+                    
                     <tr>
-                        <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; letter-spacing: 1px;">SAD-UEPR</h1>
-                            <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px; opacity: 0.9;">Sistema Automático de Dúvidas - Universidade Estadual do Paraná</p>
+                        <td style="background-color: #3b82f6; padding: 40px 30px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;">SAD-UEPR</h1>
+                            <p style="margin: 8px 0 0 0; color: #ffffff; font-size: 13px; opacity: 0.9; font-weight: 400;">Sistema de Apoio à Decisão</p>
                         </td>
                     </tr>
+
                     <tr>
-                        <td style="padding: 30px 40px 20px 40px; border-bottom: 3px solid #667eea;">
-                            <h2 style="margin: 0; color: #2c3e50; font-size: 20px; font-weight: 600;">Nova Mensagem de Contato</h2>
-                            <p style="margin: 8px 0 0 0; color: #7f8c8d; font-size: 13px;">Recebida em {timestamp}</p>
+                        <td style="padding: 40px 40px 20px 40px; border-bottom: 1px solid #f3f4f6;">
+                            <h2 style="margin: 0; color: #1f2937; font-size: 20px; font-weight: 600;">Nova solicitação de contato</h2>
+                            <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 12px;">Recebida em {timestamp}</p>
                         </td>
                     </tr>
+
                     <tr>
                         <td style="padding: 30px 40px;">
-                            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+                            
+                            <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom: 30px;">
                                 <tr>
-                                    <td style="padding-bottom: 20px;">
-                                        <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f8f9fa; border-radius: 6px; padding: 20px;">
-                                            <tr>
-                                                <td width="120" style="vertical-align: top;">
-                                                    <strong style="color: #495057; font-size: 14px;">Nome:</strong>
-                                                </td>
-                                                <td style="vertical-align: top;">
-                                                    <span style="color: #212529; font-size: 14px;">{name_escaped}</span>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td colspan="2" style="height: 15px;"></td>
-                                            </tr>
-                                            <tr>
-                                                <td width="120" style="vertical-align: top;">
-                                                    <strong style="color: #495057; font-size: 14px;">Email:</strong>
-                                                </td>
-                                                <td style="vertical-align: top;">
-                                                    <a href="mailto:{email_escaped}" style="color: #667eea; text-decoration: none; font-size: 14px;">{email_escaped}</a>
-                                                </td>
-                                            </tr>
-                                        </table>
+                                    <td width="30%" style="padding-bottom: 12px; vertical-align: top;">
+                                        <strong style="color: #9333ea; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Nome</strong>
+                                    </td>
+                                    <td width="70%" style="padding-bottom: 12px; vertical-align: top;">
+                                        <span style="color: #374151; font-size: 15px; font-weight: 500;">{name_escaped}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding-bottom: 12px; vertical-align: top;">
+                                        <strong style="color: #9333ea; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Email</strong>
+                                    </td>
+                                    <td style="padding-bottom: 12px; vertical-align: top;">
+                                        <a href="mailto:{email_escaped}" style="color: #3b82f6; text-decoration: none; font-size: 15px; font-weight: 500;">{email_escaped}</a>
                                     </td>
                                 </tr>
                             </table>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 0 40px 30px 40px;">
-                            <div style="background-color: #ffffff; border-left: 4px solid #667eea; padding: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                                <strong style="color: #495057; font-size: 14px; display: block; margin-bottom: 12px;">Mensagem:</strong>
-                                <div style="color: #212529; font-size: 14px; line-height: 1.6;">{message_escaped}</div>
+
+                            <div style="background-color: #fafafa; border-left: 4px solid #9333ea; padding: 25px; border-radius: 4px;">
+                                <strong style="color: #9333ea; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 10px;">Mensagem</strong>
+                                <div style="color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                    {message_escaped}
+                                </div>
                             </div>
+
                         </td>
                     </tr>
+
                     <tr>
-                        <td style="padding: 0 40px 30px 40px; text-align: center;">
-                            <a href="mailto:{email_escaped}?subject=Re: Contato SAD-UEPR" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);">Responder Email</a>
+                        <td style="padding: 0 40px 40px 40px; text-align: center;">
+                            <a href="mailto:{email_escaped}?subject=Re: Contato SAD-UEPR" style="display: inline-block; background-color: #3b82f6; color: #ffffff; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; text-align: center;">Responder Agora</a>
                         </td>
                     </tr>
+
                     <tr>
-                        <td style="background-color: #f8f9fa; padding: 20px 40px; text-align: center; border-top: 1px solid #e9ecef;">
-                            <p style="margin: 0 0 8px 0; color: #6c757d; font-size: 12px;">Este email foi enviado automaticamente pelo sistema SAD-UEPR</p>
-                            <p style="margin: 0; color: #6c757d; font-size: 12px;">Para responder, clique no botão acima ou responda diretamente este email</p>
-                            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6;">
-                                <p style="margin: 0; color: #adb5bd; font-size: 11px;">&copy; {datetime.now().year} Universidade Estadual do Paraná - Todos os direitos reservados</p>
-                            </div>
+                        <td style="background-color: #f9fafb; padding: 25px; text-align: center; border-top: 1px solid #e5e7eb;">
+                            <p style="margin: 0; color: #9ca3af; font-size: 11px;">&copy; {datetime.now().year} SAD-UEPR. Mensagem automática do sistema.</p>
                         </td>
                     </tr>
                 </table>
+                
+                <table cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                        <td height="40"></td>
+                    </tr>
+                </table>
+
             </td>
         </tr>
     </table>
