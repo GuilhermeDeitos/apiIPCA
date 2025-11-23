@@ -1,4 +1,5 @@
 import logging
+import os
 from app.utils.html_content import html_content
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -7,13 +8,20 @@ from app.routes import ipca as ipca_router
 from app.routes import transparencia as transparencia_router
 from app.routes import email as email_router
 from app.core.config import settings
-from app.middleware.rate_limit import rate_limiter
+from app.middlewares.rate_limit import rate_limiter
 
-# Inicializar a aplicação FastAPI
+# Obter root_path de variável de ambiente (padrão vazio para desenvolvimento)
+ROOT_PATH = os.getenv("ROOT_PATH", "")
+
+# Inicializar a aplicação FastAPI com root_path para proxy reverso
 app = FastAPI(
     title=settings.APP_TITLE,
     description=settings.APP_DESCRIPTION,
-    version=settings.APP_VERSION
+    version=settings.APP_VERSION,
+    root_path=ROOT_PATH,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 logging.basicConfig(
@@ -23,6 +31,9 @@ logging.basicConfig(
         logging.StreamHandler(),
     ]
 )
+
+# Log do root_path configurado
+logging.info(f"API configurada com root_path: '{ROOT_PATH}'")
 
 # Configurar CORS
 app.add_middleware(
@@ -64,6 +75,16 @@ app.include_router(email_router.router)
 async def root():
     """Página inicial da API."""
     return html_content
+
+@app.get("/health")
+async def health_check():
+    """Health check para monitoramento."""
+    return {
+        "status": "healthy",
+        "service": "API IPCA",
+        "version": settings.APP_VERSION,
+        "root_path": ROOT_PATH
+    }
 
 if __name__ == "__main__":
     import uvicorn

@@ -80,7 +80,7 @@ html_content = """
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(to right, var(--primary), var(--secondary));
+            background-color: var(--primary);
             color: white;
             padding: 3rem 0;
             text-align: center;
@@ -275,17 +275,17 @@ html_content = """
             <div class="container">
                 
                 <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
-                    <a href="/docs" class="card link-card">
+                    <a href="api/docs" class="card link-card">
                         <i class="fas fa-book-open"></i>
                         <h3>Swagger UI</h3>
                         <p>Documentação interativa</p>
                     </a>
-                    <a href="/redoc" class="card link-card">
+                    <a href="/api/redoc" class="card link-card">
                         <i class="fas fa-file-code"></i>
                         <h3>ReDoc</h3>
                         <p>Especificação técnica detalhada</p>
                     </a>
-                    <a href="/transparencia/status" class="card link-card">
+                    <a href="/api/transparencia/status" class="card link-card">
                         <i class="fas fa-heartbeat"></i>
                         <h3>Health Check</h3>
                         <p>Monitoramento de status da API</p>
@@ -346,7 +346,7 @@ html_content = """
                         <div class="card">
                             <p>Exemplo de requisição para crawler com correção:</p>
                             <div class="code-block">
-curl -X POST "http://tcc-api-scraper:8000/transparencia/consultar" \\
+curl -X POST "http://url:8000/transparencia/consultar" \\
 -H "Content-Type: application/json" \\
 -d '{
   "data_inicio": "01/2020",
@@ -365,7 +365,7 @@ curl -X POST "http://tcc-api-scraper:8000/transparencia/consultar" \\
 
         <footer class="footer">
             <div class="container">
-                <p>&copy; 2024 SAD-UEPR. Todos os direitos reservados.</p>
+                <p>&copy; 2025 SAD-UEPR. Todos os direitos reservados.</p>
                 <p style="margin-top: 5px; font-size: 0.8rem; opacity: 0.7;">Desenvolvido com FastAPI e React</p>
             </div>
         </footer>

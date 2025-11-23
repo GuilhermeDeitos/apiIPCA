@@ -1,5 +1,5 @@
 from fastapi import Request, HTTPException
-from typing import Dict, Tuple
+from typing import Dict, Optional
 from datetime import datetime, timedelta
 import asyncio
 from collections import defaultdict
@@ -21,26 +21,50 @@ class RateLimiter:
         self.requests_per_minute = requests_per_minute
         self.requests: Dict[str, list] = defaultdict(list)
         self._cleanup_interval = 60  # Limpar cache a cada 60 segundos
+        self._cleanup_task: Optional[asyncio.Task] = None
+        self._initialized = False
+    
+    def _ensure_cleanup_task(self):
+        """
+        Garante que a tarefa de limpeza está rodando.
+        Só inicia quando há um event loop ativo (lazy initialization).
+        """
+        if self._initialized:
+            return
         
-        # Iniciar tarefa de limpeza
-        asyncio.create_task(self._cleanup_old_requests())
+        try:
+            # Tentar obter o event loop atual
+            loop = asyncio.get_running_loop()
+            
+            # Se conseguiu, criar a tarefa
+            if not self._cleanup_task or self._cleanup_task.done():
+                self._cleanup_task = loop.create_task(self._cleanup_old_requests())
+                self._initialized = True
+        except RuntimeError:
+            # Não há event loop rodando ainda (ex: durante importação em testes)
+            # A tarefa será criada na primeira requisição
+            pass
     
     async def _cleanup_old_requests(self):
         """Remove requisições antigas do cache periodicamente."""
-        while True:
-            await asyncio.sleep(self._cleanup_interval)
-            current_time = datetime.now()
-            
-            # Remover IPs com requisições antigas
-            for ip in list(self.requests.keys()):
-                self.requests[ip] = [
-                    timestamp for timestamp in self.requests[ip]
-                    if current_time - timestamp < timedelta(minutes=1)
-                ]
+        try:
+            while True:
+                await asyncio.sleep(self._cleanup_interval)
+                current_time = datetime.now()
                 
-                # Remover IP se não tem requisições recentes
-                if not self.requests[ip]:
-                    del self.requests[ip]
+                # Remover IPs com requisições antigas
+                for ip in list(self.requests.keys()):
+                    self.requests[ip] = [
+                        timestamp for timestamp in self.requests[ip]
+                        if current_time - timestamp < timedelta(minutes=1)
+                    ]
+                    
+                    # Remover IP se não tem requisições recentes
+                    if not self.requests[ip]:
+                        del self.requests[ip]
+        except asyncio.CancelledError:
+            # Tarefa foi cancelada, limpar e sair
+            pass
     
     def _get_client_ip(self, request: Request) -> str:
         """
@@ -74,6 +98,9 @@ class RateLimiter:
         Raises:
             HTTPException: Se limite excedido
         """
+        # Garantir que a tarefa de limpeza está rodando
+        self._ensure_cleanup_task()
+        
         client_ip = self._get_client_ip(request)
         current_time = datetime.now()
         
@@ -96,6 +123,17 @@ class RateLimiter:
         
         # Adicionar requisição atual
         self.requests[client_ip].append(current_time)
+    
+    def reset(self):
+        """
+        Reseta o rate limiter (útil para testes).
+        """
+        self.requests.clear()
+        self._initialized = False
+        
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
 
 
 # Instância global do rate limiter

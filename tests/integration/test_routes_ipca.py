@@ -20,17 +20,14 @@ class TestIPCARoutesIntegracao:
         }
         mock_dados.update({f"{mes:02d}/2023": 115.0 + mes for mes in range(1, 13)})
         
-        # Mockar diretamente os atributos da instância existente
         mocker.patch.object(ipca_service, '_ipca_dict', mock_dados)
         mocker.patch.object(ipca_service, '_ipca_info', "Dados mockados")
         
     
     def test_get_ipca_todos_dados_sucesso(self):
         """Testa endpoint GET /ipca para obter todos os dados."""
-        # Act
         response = client.get("/ipca")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert "info" in data
@@ -40,10 +37,8 @@ class TestIPCARoutesIntegracao:
     
     def test_get_ipca_filtro_data_valida(self):
         """Testa endpoint GET /ipca/filtro com mês e ano válidos."""
-        # Act
         response = client.get("/ipca/filtro?mes=01&ano=2020")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert data["data"] == "01/2020"
@@ -51,27 +46,22 @@ class TestIPCARoutesIntegracao:
     
     def test_get_ipca_filtro_data_nao_encontrada(self):
         """Testa endpoint GET /ipca/filtro com data inexistente."""
-        # Act
+        # Mês 13 é inválido, então validação retorna 400
         response = client.get("/ipca/filtro?mes=13&ano=2020")
         
-        # Assert
-        assert response.status_code == 404
-        assert "Data não encontrada" in response.json()["detail"]
+        assert response.status_code == 400
+        assert "Mês deve estar entre 01 e 12" in response.json()["detail"]
     
     def test_get_ipca_filtro_parametros_faltando(self):
         """Testa endpoint GET /ipca/filtro sem parâmetros obrigatórios."""
-        # Act
         response = client.get("/ipca/filtro")
         
-        # Assert
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
     
     def test_get_ipca_media_anual_sucesso(self):
         """Testa endpoint GET /ipca/media-anual/{ano}."""
-        # Act
         response = client.get("/ipca/media-anual/2023")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert "ano" in data
@@ -83,18 +73,14 @@ class TestIPCARoutesIntegracao:
     
     def test_get_ipca_media_anual_ano_sem_dados(self):
         """Testa endpoint GET /ipca/media-anual/{ano} para ano sem dados."""
-        # Act
         response = client.get("/ipca/media-anual/2050")
         
-        # Assert
         assert response.status_code == 404
     
     def test_get_ipca_medias_multiplos_anos_sucesso(self):
         """Testa endpoint GET /ipca/medias-anuais."""
-        # Act
         response = client.get("/ipca/medias-anuais?anos=2020&anos=2023")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert "2020" in data or "2023" in data
@@ -102,12 +88,10 @@ class TestIPCARoutesIntegracao:
     
     def test_get_ipca_corrigir_valor_sucesso(self):
         """Testa endpoint GET /ipca/corrigir com parâmetros válidos."""
-        # Act
         response = client.get(
             "/ipca/corrigir?valor=1000&mes_inicial=01&ano_inicial=2020&mes_final=12&ano_final=2023"
         )
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert "valor_inicial" in data
@@ -118,24 +102,22 @@ class TestIPCARoutesIntegracao:
     
     def test_get_ipca_corrigir_valor_negativo(self):
         """Testa endpoint GET /ipca/corrigir com valor negativo."""
-        # Act
         response = client.get(
             "/ipca/corrigir?valor=-1000&mes_inicial=01&ano_inicial=2020&mes_final=12&ano_final=2023"
         )
         
-        # Assert
         assert response.status_code == 400
         assert "não pode ser negativo" in response.json()["detail"]
     
     def test_get_ipca_corrigir_data_inicial_invalida(self):
         """Testa endpoint GET /ipca/corrigir com data inicial inválida."""
-        # Act
         response = client.get(
             "/ipca/corrigir?valor=1000&mes_inicial=13&ano_inicial=2020&mes_final=12&ano_final=2023"
         )
         
-        # Assert
-        assert response.status_code == 404
+        # Validação retorna 400, não 404
+        assert response.status_code == 400
+        assert "Mês deve estar entre 01 e 12" in response.json()["detail"]
 
 
 class TestIPCARoutesValidacao:
@@ -151,21 +133,19 @@ class TestIPCARoutesValidacao:
         mocker.patch.object(ipca_service, '_ipca_dict', mock_dados)
         mocker.patch.object(ipca_service, '_ipca_info', "Dados mockados")
     
-    @pytest.mark.parametrize("mes,ano,esperado_status,esperado_detail", [
-        ("00", "2020", 404, "Data não encontrada"),  # Mês inválido resulta em 404
-        ("13", "2020", 404, "Data não encontrada"),  # Mês inválido resulta em 404
-        ("01", "abc", 404, "Data não encontrada"),   # Ano não numérico resulta em busca "01/abc" -> 404
-        ("a", "2020", 404, "Data não encontrada"),   # Mês não numérico resulta em busca "a/2020" -> 404
+    @pytest.mark.parametrize("mes,ano,esperado_status,esperado_substring", [
+        ("00", "2020", 400, "Mês deve estar entre 01 e 12"),
+        ("13", "2020", 400, "Mês deve estar entre 01 e 12"),
+        ("01", "abc", 400, "Formato de ano inválido"),
+        ("a", "2020", 400, "Formato de mês inválido"),
     ])
-    def test_get_ipca_filtro_validacao_entrada(self, mes, ano, esperado_status, esperado_detail):
+    def test_get_ipca_filtro_validacao_entrada(self, mes, ano, esperado_status, esperado_substring):
         """Testa validação de entrada do endpoint /ipca/filtro."""
-        # Act
         response = client.get(f"/ipca/filtro?mes={mes}&ano={ano}")
         
-        # Assert
         assert response.status_code == esperado_status
-        if esperado_status == 404:
-            assert esperado_detail in response.json()["detail"]
+        if esperado_status == 400:
+            assert esperado_substring in response.json()["detail"]
 
 
 class TestIPCARoutesPerformance:
@@ -185,24 +165,18 @@ class TestIPCARoutesPerformance:
     
     def test_get_ipca_todos_dados_com_grande_volume(self):
         """Testa se o endpoint /ipca lida com grande volume de dados."""
-        # Act
         response = client.get("/ipca")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data["data"]) > 200  # Deve ter muitos registros
-        # Tempo de resposta deve ser razoável (pytest mede automaticamente)
+        assert len(data["data"]) > 200
     
     def test_get_ipca_medias_multiplos_anos_muitos_anos(self):
         """Testa endpoint com muitos anos simultâneos."""
-        # Arrange
         anos_query = "&".join([f"anos={ano}" for ano in range(2010, 2024)])
         
-        # Act
         response = client.get(f"/ipca/medias-anuais?{anos_query}")
         
-        # Assert
         assert response.status_code == 200
         data = response.json()
         assert len(data) > 10
