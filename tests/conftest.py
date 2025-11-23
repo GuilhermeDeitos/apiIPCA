@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import Mock
 
 
-
 @pytest.fixture
 def ipca_service_mock():
     """Mock padrão do serviço IPCA."""
@@ -15,6 +14,7 @@ def ipca_service_mock():
         "12/2023": 120.0
     }
     return mock
+
 
 @pytest.fixture
 def dados_transparencia_mock():
@@ -35,15 +35,50 @@ def dados_transparencia_mock():
             "EMPENHADO_ATE_MES": "1000000"
         }
     ]
-    
+
+
 @pytest.fixture(scope="session")
 def test_app():
     """Instância da aplicação FastAPI para testes."""
     from app.main import app
     return app
 
+
 @pytest.fixture
 def client(test_app):
     """Cliente de teste HTTP."""
     from fastapi.testclient import TestClient
     return TestClient(test_app)
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    Reseta o rate limiter antes de cada teste.
+    Evita que testes falhem por atingir o limite.
+    """
+    from app.middlewares.rate_limit import rate_limiter
+    
+    # Reset antes do teste
+    rate_limiter.reset()
+    
+    yield
+    
+    # Reset depois do teste
+    rate_limiter.reset()
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """
+    Cria um event loop para toda a sessão de testes.
+    Necessário para testes assíncronos.
+    """
+    import asyncio
+    
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    
+    yield loop
+    
+    loop.close()
