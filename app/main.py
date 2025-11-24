@@ -82,26 +82,49 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logger.error(f"Método: {request.method}")
     logger.error(f"Client: {request.client.host if request.client else 'unknown'}")
     
+    # Processar erros para garantir serialização JSON
+    processed_errors = []
     for error in errors:
         field = " -> ".join(str(loc) for loc in error["loc"])
         logger.error(f"  Campo: {field}")
         logger.error(f"  Tipo: {error['type']}")
         logger.error(f"  Mensagem: {error['msg']}")
+        
+        # Criar erro processado garantindo que tudo é serializável
+        processed_error = {
+            "loc": error["loc"],
+            "msg": str(error["msg"]),  # Converter para string garantindo serialização
+            "type": error["type"]
+        }
+        
+        # Adicionar contexto se existir e for serializável
         if "ctx" in error:
-            logger.error(f"  Contexto: {error['ctx']}")
+            try:
+                logger.error(f"  Contexto: {error['ctx']}")
+                processed_error["ctx"] = {
+                    k: str(v) for k, v in error["ctx"].items()
+                }
+            except Exception as e:
+                logger.warning(f"Não foi possível processar contexto: {e}")
+        
+        processed_errors.append(processed_error)
     
     # Tentar logar body da requisição (cuidado com dados sensíveis)
     try:
         body = await request.body()
-        logger.debug(f"Body recebido: {body.decode('utf-8')[:500]}")  # Primeiros 500 chars
-    except:
-        logger.debug("Não foi possível ler o body da requisição")
+        body_str = body.decode('utf-8')
+        if len(body_str) > 500:
+            logger.debug(f"Body recebido (primeiros 500 chars): {body_str[:500]}...")
+        else:
+            logger.debug(f"Body recebido: {body_str}")
+    except Exception as e:
+        logger.debug(f"Não foi possível ler o body da requisição: {e}")
     
-    # Retornar resposta amigável
+    # Retornar resposta amigável com erros processados
     return JSONResponse(
         status_code=422,
         content={
-            "detail": errors,
+            "detail": processed_errors,
             "message": "Dados inválidos. Verifique os campos e tente novamente."
         }
     )
