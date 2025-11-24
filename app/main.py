@@ -2,7 +2,8 @@ import logging
 import os
 from app.utils.html_content import html_content
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import ipca as ipca_router
 from app.routes import transparencia as transparencia_router
@@ -34,6 +35,7 @@ logging.basicConfig(
 
 # Log do root_path configurado
 logging.info(f"API configurada com root_path: '{ROOT_PATH}'")
+logger = logging.getLogger(__name__)
 
 # Configurar CORS
 app.add_middleware(
@@ -65,6 +67,45 @@ async def rate_limit_middleware(request: Request, call_next):
     
     response = await call_next(request)
     return response
+
+# Handler global para erros de validação
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Handler personalizado para erros de validação do Pydantic.
+    Loga detalhes e retorna mensagem amigável.
+    """
+    errors = exc.errors()
+    
+    # Log detalhado do erro
+    logger.error(f"Erro de validação na rota {request.url.path}")
+    logger.error(f"Método: {request.method}")
+    logger.error(f"Client: {request.client.host if request.client else 'unknown'}")
+    
+    for error in errors:
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        logger.error(f"  Campo: {field}")
+        logger.error(f"  Tipo: {error['type']}")
+        logger.error(f"  Mensagem: {error['msg']}")
+        if "ctx" in error:
+            logger.error(f"  Contexto: {error['ctx']}")
+    
+    # Tentar logar body da requisição (cuidado com dados sensíveis)
+    try:
+        body = await request.body()
+        logger.debug(f"Body recebido: {body.decode('utf-8')[:500]}")  # Primeiros 500 chars
+    except:
+        logger.debug("Não foi possível ler o body da requisição")
+    
+    # Retornar resposta amigável
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": errors,
+            "message": "Dados inválidos. Verifique os campos e tente novamente."
+        }
+    )
+
 
 # Incluir rotas
 app.include_router(ipca_router.router)
