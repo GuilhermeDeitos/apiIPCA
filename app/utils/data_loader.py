@@ -244,14 +244,20 @@ async def _processar_assincrono(
         
         # Verificar conclusão
         if status_data.get("status") == "concluido":
-            logger.info("Consulta concluída")
-            yield _criar_resposta_final(
-                todos_dados,
-                total_dados_nao_processados,
-                periodo_base,
-                ipca_base,
-                tipo_correcao
-            )
+            logger.info("Consulta concluída - Enviando evento final SEM dados")
+            
+            yield {
+                "status": "completo",
+                "total_registros": len(todos_dados),
+                "total_nao_processados": len(total_dados_nao_processados),
+                "dados": [],  
+                "dados_nao_processados": total_dados_nao_processados,
+                "periodo_base_ipca": periodo_base,
+                "ipca_referencia": ipca_base,
+                "tipo_correcao": tipo_correcao,
+                "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
+                "mensagem": "Dados já foram enviados nos eventos parciais"
+            }
             break
         
         # Timeout
@@ -290,7 +296,7 @@ def _criar_resposta_final(
         "status": "completo",
         "total_registros": len(todos_dados),
         "total_nao_processados": len(dados_nao_processados),
-        "dados": todos_dados,
+        "dados": [],
         "dados_nao_processados": dados_nao_processados,
         "periodo_base_ipca": periodo_base,
         "ipca_referencia": ipca_base,
