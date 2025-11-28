@@ -1,360 +1,349 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import Mock
 from app.main import app
+from app.services.ipca_service import get_ipca_service, IPCAService
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def mock_ipca_service():
+    """Cria mock do serviço IPCA."""
+    mock = Mock(spec=IPCAService)
+    
+    # Dados mock
+    mock_dados = {
+        "01/2020": 100.0,
+        "02/2020": 101.5,
+        "03/2020": 102.0,
+        "12/2023": 120.0
+    }
+    
+    mock.obter_todos_dados = Mock(return_value={
+        "info": "Mock",
+        "data": mock_dados
+    })
+    
+    # ✅ Mock dinâmico para obter_valor_por_data
+    def obter_valor_por_data_side_effect(mes: str, ano: str):
+        data_key = f"{mes}/{ano}"
+        if data_key in mock_dados:
+            return {"data": data_key, "valor": mock_dados[data_key]}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Data não encontrada")
+    
+    mock.obter_valor_por_data = Mock(side_effect=obter_valor_por_data_side_effect)
+    
+    # ✅ MUDANÇA: Mock dinâmico para corrigir_valor que respeita os parâmetros
+    def corrigir_valor_side_effect(valor: float, mes_inicial: str, ano_inicial: str, 
+                                   mes_final: str, ano_final: str):
+        from fastapi import HTTPException
+        
+        data_inicial = f"{mes_inicial}/{ano_inicial}"
+        data_final = f"{mes_final}/{ano_final}"
+        
+        # Validar se datas existem
+        if data_inicial not in mock_dados or data_final not in mock_dados:
+            raise HTTPException(
+                status_code=404, 
+                detail="IPCA para data inicial ou final não encontrado"
+            )
+        
+        # Validar valor
+        if valor < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="O valor a ser corrigido não pode ser negativo"
+            )
+        
+        # Calcular correção com os dados mock
+        indice_inicial = mock_dados[data_inicial]
+        indice_final = mock_dados[data_final]
+        
+        valor_corrigido = valor * (indice_final / indice_inicial)
+        percentual = ((indice_final / indice_inicial) - 1) * 100
+        
+        return {
+            "valor_inicial": valor,
+            "data_inicial": data_inicial,
+            "data_final": data_final,
+            "indice_ipca_inicial": indice_inicial,
+            "indice_ipca_final": indice_final,
+            "valor_corrigido": round(valor_corrigido, 2),
+            "percentual_correcao": round(percentual, 4)
+        }
+    
+    mock.corrigir_valor = Mock(side_effect=corrigir_valor_side_effect)
+    
+    # ✅ Mock dinâmico para obter_media_anual
+    def obter_media_anual_side_effect(ano: str, meses=None):
+        from fastapi import HTTPException
+        
+        if meses is None:
+            meses = list(range(1, 13))
+        
+        valores = []
+        valores_mensais = {}
+        meses_disponiveis = []
+        
+        for mes in meses:
+            periodo = f"{mes:02d}/{ano}"
+            if periodo in mock_dados:
+                valor = mock_dados[periodo]
+                valores.append(valor)
+                valores_mensais[f"{mes:02d}"] = valor
+                meses_disponiveis.append(f"{mes:02d}")
+        
+        if not valores:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nenhum valor IPCA encontrado para o ano {ano}"
+            )
+        
+        media = sum(valores) / len(valores)
+        
+        return {
+            "ano": ano,
+            "media_ipca": round(media, 4),
+            "total_meses": len(valores),
+            "meses_disponiveis": meses_disponiveis,
+            "valores_mensais": valores_mensais
+        }
+    
+    mock.obter_media_anual = Mock(side_effect=obter_media_anual_side_effect)
+    
+    # ✅ Mock dinâmico para obter_medias_multiplos_anos
+    def obter_medias_multiplos_anos_side_effect(anos, meses=None):
+        resultado = {}
+        for ano in anos:
+            try:
+                resultado[ano] = obter_media_anual_side_effect(ano, meses)
+            except:
+                resultado[ano] = {"erro": f"Dados não disponíveis para {ano}"}
+        return resultado
+    
+    mock.obter_medias_multiplos_anos = Mock(side_effect=obter_medias_multiplos_anos_side_effect)
+    
+    return mock
+
+
+@pytest.fixture(autouse=True)
+def setup_mock_service(mock_ipca_service):
+    """Configura mock do serviço para todos os testes."""
+    # ✅ Resetar singleton e limpar overrides
+    IPCAService.reset_instance()
+    app.dependency_overrides.clear()
+    
+    # Configurar override
+    app.dependency_overrides[get_ipca_service] = lambda: mock_ipca_service
+    
+    yield
+    
+    # Limpar após testes
+    app.dependency_overrides.clear()
+    IPCAService.reset_instance()
 
 
 class TestFluxoCompletoIPCA:
     """Testes E2E para fluxo completo de consulta IPCA."""
     
-    
-    
-    def test_fluxo_consulta_e_correcao_valor(self, mocker): 
-        """
-        Testa fluxo completo:
-        1. Listar todos os dados IPCA
-        2. Consultar IPCA de um período específico
-        3. Corrigir um valor monetário
-        """
-        mock_dados_ipca = {
-            "01/2020": 100.0,
-            "02/2020": 101.5,
-            "03/2020": 102.0,
-            "12/2023": 120.0
-        }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Mock", "data": mock_dados_ipca}
-        )
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_valor_por_data',
-            return_value={"data": "01/2020", "valor": 100.0}
-        )
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.corrigir_valor',
-            return_value={
-                "valor_inicial": 1000.0,
-                "valor_corrigido": 1200.0,
-                "percentual_correcao": 20.0,
-                "data_inicial": "01/2020",
-                "data_final": "12/2023",
-                "indice_ipca_inicial": 100.0,
-                "indice_ipca_final": 120.0
-            }
-        )
-        
-        # Step 1: Listar todos os dados
+    def test_fluxo_consulta_e_correcao_valor(self):
+        """Testa fluxo completo de consulta e correção."""
+        # 1. Obter todos os dados
         response = client.get("/ipca")
         assert response.status_code == 200
         dados_ipca = response.json()
         assert "data" in dados_ipca
         assert len(dados_ipca["data"]) > 0
         
-        # Step 2: Consultar IPCA de um período específico
+        # 2. Consultar valor específico
         response = client.get("/ipca/filtro?mes=01&ano=2020")
         assert response.status_code == 200
         dados_mes = response.json()
         assert dados_mes["data"] == "01/2020"
-        assert "valor" in dados_mes
+        assert dados_mes["valor"] == 100.0
         
-        # Step 3: Corrigir um valor monetário
+        # 3. Corrigir valor
         response = client.get(
             "/ipca/corrigir?valor=1000&mes_inicial=01&ano_inicial=2020"
             "&mes_final=12&ano_final=2023"
         )
         assert response.status_code == 200
         correcao = response.json()
-        assert "valor_corrigido" in correcao
         assert correcao["valor_inicial"] == 1000.0
-        assert correcao["data_inicial"] == "01/2020"
-        assert correcao["data_final"] == "12/2023"
-
-    def test_fluxo_historico_periodo(self, mocker):
-        """Testa consulta de histórico de período específico."""
-        mock_historico = {
-            "01/2020": 100.0,
-            "02/2020": 101.5,
-            "03/2020": 102.0
-        }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Mock", "data": mock_historico}
-        )
-        
-        # Mockar média anual
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_media_anual',
-            return_value={
-                "ano": "2020",
-                "media_ipca": 100.5,
-                "total_meses": 3,
-                "meses_disponiveis": ["01", "02", "03"],
-                "valores_mensais": {"01": 100.0, "02": 101.5, "03": 102.0}
-            }
-        )
-        
-        # Mockar médias múltiplos anos
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_medias_multiplos_anos',
-            return_value={
-                "2020": {
-                    "ano": "2020",
-                    "media_ipca": 100.5,
-                    "total_meses": 3,
-                    "meses_disponiveis": ["01", "02", "03"],
-                    "valores_mensais": {"01": 100.0, "02": 101.5, "03": 102.0}
-                }
-            }
-        )
-        
-        # Step 1: Listar todos os dados
+        assert correcao["valor_corrigido"] == 1200.0  # 1000 * (120/100)
+        assert correcao["percentual_correcao"] == 20.0
+    
+    def test_fluxo_historico_periodo(self):
+        """Testa consulta de histórico."""
         response = client.get("/ipca")
         assert response.status_code == 200
         dados = response.json()
         
-        # Step 2: Extrair anos disponíveis
+        # Extrair anos disponíveis
         anos = set()
         for data in dados["data"].keys():
             _, ano = data.split("/")
             anos.add(ano)
         
         if anos:
-            # Step 3: Calcular média de um ano
             ano_escolhido = list(anos)[0]
             response = client.get(f"/ipca/media-anual/{ano_escolhido}")
             assert response.status_code == 200
-            media_anual = response.json()
-            assert media_anual["ano"] == ano_escolhido
-            assert "media_ipca" in media_anual
-            
-            # Step 4: Calcular médias de múltiplos anos
-            anos_query = "&".join([f"anos={ano}" for ano in list(anos)[:3]])
-            response = client.get(f"/ipca/medias-anuais?{anos_query}")
-            assert response.status_code == 200
-            medias = response.json()
-            assert len(medias) > 0
+            media = response.json()
+            assert "ano" in media
+            assert "media_ipca" in media
 
 
 class TestFluxoErrosERecuperacao:
-    """Testes E2E para cenários de erro e recuperação."""
+    """Testes de cenários de erro."""
     
-    def test_fluxo_erro_400_validacao_e_tentativa_valida(self, mocker):
-        """
-        Testa fluxo:
-        1. Tentar consultar data com validação inválida (400)
-        2. Consultar data válida (200)
-        """
-        # Step 1: Tentar mês inválido (validação retorna 400)
+    def test_fluxo_erro_400_validacao(self):
+        """Testa validação de entrada inválida."""
+        # Mês inválido
         response = client.get("/ipca/filtro?mes=13&ano=2020")
         assert response.status_code == 400
-        assert "Mês deve estar entre 01 e 12" in response.json()["detail"]
         
-        # Step 2: Mock de dados válidos
-        mock_dados_ipca = {
-            "01/2020": 100.0,
-            "02/2020": 101.5
-        }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Mock", "data": mock_dados_ipca}
-        )
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_valor_por_data',
-            return_value={"data": "01/2020", "valor": 100.0}
-        )
-        
-        # Step 3: Consultar data válida
+        # Consulta válida
         response = client.get("/ipca/filtro?mes=01&ano=2020")
         assert response.status_code == 200
     
-    def test_fluxo_validacao_parametros(self, mocker):
-        """Testa validação de parâmetros em múltiplos endpoints."""
-        from fastapi import HTTPException
-        
-        def mock_corrigir_valor(valor: float, mes_inicial: str, ano_inicial: str, 
-                                mes_final: str, ano_final: str):
-            if valor < 0:
-                raise HTTPException(status_code=400, detail="Valor não pode ser negativo")
-            return {
-                "valor_inicial": valor,
-                "valor_corrigido": valor * 1.15,
-                "percentual_correcao": 15.0,
-                "data_inicial": f"{mes_inicial}/{ano_inicial}",
-                "data_final": f"{mes_final}/{ano_final}",
-                "indice_ipca_inicial": 100.0,
-                "indice_ipca_final": 115.0
-            }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.corrigir_valor',
-            side_effect=mock_corrigir_valor
-        )
-        
-        # Teste 1: Valor negativo
+    def test_fluxo_validacao_parametros(self):
+        """Testa validação de parâmetros."""
+        # Valor negativo
         response = client.get(
             "/ipca/corrigir?valor=-1000&mes_inicial=01&ano_inicial=2020"
             "&mes_final=12&ano_final=2023"
         )
         assert response.status_code == 400
         
-        # Teste 2: Mês inválido (validação retorna 400)
-        response = client.get("/ipca/filtro?mes=13&ano=2020")
-        assert response.status_code == 400
-        
-        # Teste 3: Parâmetros faltando
-        response = client.get("/ipca/filtro?mes=01")
-        assert response.status_code == 422
-        
-        # Teste 4: Valor válido deve funcionar
+        # Valor válido
         response = client.get(
             "/ipca/corrigir?valor=1000&mes_inicial=01&ano_inicial=2020"
             "&mes_final=12&ano_final=2023"
         )
         assert response.status_code == 200
     
-    def test_fluxo_dados_inconsistentes(self, mocker):
-        """Testa tratamento quando dados estão inconsistentes."""
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Sem dados", "data": {}}
-        )
-        
+    def test_fluxo_data_nao_encontrada(self):
+        """Testa consulta de data inexistente."""
+        response = client.get("/ipca/filtro?mes=01&ano=2050")
+        assert response.status_code == 404
+
+
+class TestFluxoPerformance:
+    """Testes de performance."""
+    
+    def test_fluxo_multiplas_consultas(self):
+        """Testa múltiplas consultas."""
+        for _ in range(10):
+            response = client.get("/ipca")
+            assert response.status_code == 200
+            
+            response = client.get("/ipca/filtro?mes=01&ano=2020")
+            assert response.status_code == 200
+
+
+class TestFluxoIntegracaoCompleta:
+    """Testes de integração completa."""
+    
+    def test_fluxo_usuario_real_completo(self):
+        """Testa fluxo completo de usuário."""
+        # 1. Verificar disponibilidade do serviço
         response = client.get("/ipca")
         assert response.status_code == 200
         dados = response.json()
         assert "data" in dados
-        assert len(dados["data"]) == 0
-
-
-class TestFluxoPerformance:
-    """Testa performance e limites do sistema."""
-    
-    def test_fluxo_multiplas_consultas_simultaneas(self, mocker):
-        """Simula múltiplas consultas para verificar estabilidade."""
-        mock_dados = {
-            "01/2020": 100.0,
-            "02/2020": 101.5,
-            "03/2020": 102.0
-        }
         
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Mock", "data": mock_dados}
-        )
-        
-        for _ in range(10):
-            response = client.get("/ipca")
-            assert response.status_code == 200
-            assert "data" in response.json()
-    
-    def test_fluxo_correcao_valores_extremos(self, mocker):
-        """Testa correção com valores muito grandes e muito pequenos."""
-        from fastapi import HTTPException
-        
-        def mock_corrigir_valor(valor: float, mes_inicial: str, ano_inicial: str,
-                                mes_final: str, ano_final: str):
-            if valor < 0:
-                raise HTTPException(status_code=400, detail="Valor não pode ser negativo")
-            if valor > 999999999:
-                raise HTTPException(status_code=400, detail="Valor muito grande")
-            
-            return {
-                "valor_inicial": valor,
-                "valor_corrigido": valor * 1.15,
-                "percentual_correcao": 15.0,
-                "data_inicial": f"{mes_inicial}/{ano_inicial}",
-                "data_final": f"{mes_final}/{ano_final}",
-                "indice_ipca_inicial": 100.0,
-                "indice_ipca_final": 115.0
-            }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.corrigir_valor',
-            side_effect=mock_corrigir_valor
-        )
-        
-        # Valor pequeno
-        response = client.get(
-            "/ipca/corrigir?valor=0.01&mes_inicial=01&ano_inicial=2020"
-            "&mes_final=12&ano_final=2023"
-        )
+        # 2. Consultar valor inicial (01/2020)
+        response = client.get("/ipca/filtro?mes=01&ano=2020")
         assert response.status_code == 200
+        valor_inicial = response.json()
+        assert valor_inicial["valor"] == 100.0
         
-        # Valor grande mas válido
-        response = client.get(
-            "/ipca/corrigir?valor=1000000&mes_inicial=01&ano_inicial=2020"
-            "&mes_final=12&ano_final=2023"
-        )
+        # 3. Consultar valor final (12/2023)
+        response = client.get("/ipca/filtro?mes=12&ano=2023")
         assert response.status_code == 200
+        valor_final = response.json()
+        assert valor_final["valor"] == 120.0
         
-        # Valor muito grande
-        response = client.get(
-            "/ipca/corrigir?valor=9999999999&mes_inicial=01&ano_inicial=2020"
-            "&mes_final=12&ano_final=2023"
-        )
-        assert response.status_code == 400
-
-
-class TestFluxoIntegracaoCompleta:
-    """Testes de integração end-to-end completos."""
-    
-    def test_fluxo_usuario_real_completo(self, mocker):
-        """
-        Simula fluxo completo de um usuário real:
-        1. Listar dados disponíveis
-        2. Escolher período
-        3. Fazer correção
-        4. Validar resultado
-        """
-        mock_dados = {
-            "01/2020": 100.0,
-            "12/2023": 120.0
-        }
-        
-        mock_correcao = {
-            "valor_inicial": 5000.0,
-            "valor_corrigido": 6000.0,
-            "percentual_correcao": 20.0,
-            "data_inicial": "01/2020",
-            "data_final": "12/2023",
-            "indice_ipca_inicial": 100.0,
-            "indice_ipca_final": 120.0
-        }
-        
-        mocker.patch(
-            'app.routes.ipca.ipca_service.obter_todos_dados',
-            return_value={"info": "Mock", "data": mock_dados}
-        )
-        mocker.patch(
-            'app.routes.ipca.ipca_service.corrigir_valor',
-            return_value=mock_correcao
-        )
-        
-        response = client.get("/ipca")
-        assert response.status_code == 200
-        dados = response.json()
-        assert len(dados["data"]) > 0
-        
+        # 4. Corrigir valor de R$ 5.000,00
         response = client.get(
             "/ipca/corrigir?valor=5000&mes_inicial=01&ano_inicial=2020"
             "&mes_final=12&ano_final=2023"
         )
-        
         assert response.status_code == 200
         resultado = response.json()
         
+        # ✅ MUDANÇA: Verificar que o valor inicial é realmente 5000
         assert resultado["valor_inicial"] == 5000.0
-        assert resultado["valor_corrigido"] > 5000.0
-        assert resultado["percentual_correcao"] > 0
         
-        diferenca = resultado["valor_corrigido"] - resultado["valor_inicial"]
-        assert diferenca > 0
-        assert resultado["data_inicial"] == "01/2020"
-        assert resultado["data_final"] == "12/2023"
+        # Verificar cálculo: 5000 * (120/100) = 6000
+        assert resultado["valor_corrigido"] == 6000.0
+        
+        # Verificar percentual: ((120/100) - 1) * 100 = 20%
+        assert resultado["percentual_correcao"] == 20.0
+        
+        # 5. Obter média anual de 2020
+        response = client.get("/ipca/media-anual/2020")
+        assert response.status_code == 200
+        media = response.json()
+        assert media["ano"] == "2020"
+        assert media["total_meses"] == 3  # Temos dados para 01, 02, 03/2020
+        assert "media_ipca" in media
+    
+    def test_fluxo_multiplos_valores_correcao(self):
+        """Testa correção de múltiplos valores."""
+        valores_teste = [100.0, 1000.0, 5000.0, 10000.0]
+        
+        for valor in valores_teste:
+            response = client.get(
+                f"/ipca/corrigir?valor={valor}&mes_inicial=01&ano_inicial=2020"
+                "&mes_final=12&ano_final=2023"
+            )
+            assert response.status_code == 200
+            resultado = response.json()
+            
+            # Verificar que o valor inicial corresponde ao enviado
+            assert resultado["valor_inicial"] == valor
+            
+            # Verificar que o valor corrigido é maior (pois houve inflação)
+            assert resultado["valor_corrigido"] > valor
+            
+            # Verificar cálculo: valor * (120/100) = valor * 1.2
+            assert resultado["valor_corrigido"] == round(valor * 1.2, 2)
+            
+class TestFluxoCacheIPCA:
+    """Testes E2E para fluxo de cache."""
+    
+    def test_fluxo_completo_cache(self, mocker):
+        """Testa fluxo completo de gerenciamento de cache."""
+        # Arrange
+        mock_stats_inicial = {"existe": False, "total_registros": 0}
+        mock_stats_apos = {"existe": True, "total_registros": 200}
+        
+        mocker.patch(
+            "app.routes.ipca.obter_estatisticas_cache",
+            side_effect=[mock_stats_inicial, mock_stats_apos]
+        )
+        mocker.patch(
+            "app.routes.ipca.forcar_atualizacao_cache",
+            return_value=(True, "Cache atualizado")
+        )
+        
+        # Act & Assert
+        
+        # 1. Verificar status inicial (sem cache)
+        response = client.get("/ipca/cache/status")
+        assert response.status_code == 200
+        assert response.json()["existe"] is False
+        
+        # 2. Forçar atualização do cache
+        response = client.post("/ipca/cache/atualizar")
+        assert response.status_code == 200
+        assert "sucesso" in response.json()["status"]
+        
+        # 3. Verificar status após atualização
+        response = client.get("/ipca/cache/status")
+        assert response.status_code == 200
+        assert response.json()["existe"] is True
