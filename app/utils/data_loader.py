@@ -182,18 +182,16 @@ async def _processar_assincrono(
     todos_dados = []
     total_dados_nao_processados = []
     tentativas_sem_mudanca = 0
-    max_tentativas = 120  # Aumentar timeout para 2 minutos
+    max_tentativas = 240  # 2 minutos (240 * 0.5s = 120s)
     
     anos_esperados = None
     backend_disse_completo = False
-    ciclos_apos_completo = 0  # Contador de ciclos após backend dizer completo
     
     while True:
         if cancel_event and cancel_event.is_set():
             logger.info("Cancelamento durante processamento assíncrono")
             return
         
-        # Reduzir intervalo de 2s para 0.5s
         await asyncio.sleep(0.5)
         
         try:
@@ -207,9 +205,8 @@ async def _processar_assincrono(
             if not backend_disse_completo:
                 backend_disse_completo = True
                 logger.info("Backend marcou como concluído")
-            ciclos_apos_completo += 1
         
-        # Capturar total de anos esperados na primeira consulta
+        # Capturar total de anos esperados
         if anos_esperados is None:
             anos_concluidos_resp = status_data.get("anos_concluidos", [])
             anos_pendentes_resp = status_data.get("anos_pendentes", [])
@@ -278,18 +275,14 @@ async def _processar_assincrono(
         else:
             tentativas_sem_mudanca += 1
         
-        # Verificação mais robusta
-        todos_anos_processados = anos_esperados and len(anos_ja_processados) >= len(anos_esperados)
-        
-        # Aguardar pelo menos 6 ciclos (3 segundos) após backend dizer completo
-        backend_completo_com_espera = backend_disse_completo and ciclos_apos_completo >= 6
-        
-        if todos_anos_processados:
+        # MUDANÇA CRÍTICA: APENAS uma condição - todos os anos processados
+        if anos_esperados and len(anos_ja_processados) >= len(anos_esperados):
             logger.info(
-                f"Finalizando consulta - todos os anos processados. "
-                f"Anos processados: {len(anos_ja_processados)}/{len(anos_esperados)}"
+                f"Finalizando consulta - TODOS os anos processados. "
+                f"Anos: {len(anos_ja_processados)}/{len(anos_esperados)}"
             )
-            await asyncio.sleep(0.5)  # Aguardar mais um pouco
+            
+            await asyncio.sleep(0.5)  # Pequena pausa final
             
             yield {
                 "status": "completo",
@@ -305,42 +298,22 @@ async def _processar_assincrono(
             }
             break
         
-        # Backend completo + aguardou + processou pelo menos alguns anos
-        if backend_completo_com_espera and len(anos_ja_processados) > 0:
-            logger.info(
-                f"Finalizando consulta - backend confirmou após espera de {ciclos_apos_completo} ciclos. "
-                f"Anos processados: {len(anos_ja_processados)}/{len(anos_esperados) if anos_esperados else '?'}"
-            )
-            
-            await asyncio.sleep(0.5)
-            
-            yield {
-                "status": "completo",
-                "total_registros": len(todos_dados),
-                "total_nao_processados": len(total_dados_nao_processados),
-                "dados": [],
-                "dados_nao_processados": total_dados_nao_processados,
-                "periodo_base_ipca": periodo_base,
-                "ipca_referencia": ipca_base,
-                "tipo_correcao": tipo_correcao,
-                "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
-                "mensagem": f"Processamento concluído: {len(anos_ja_processados)} anos"
-            }
-            break
-        
-        # Timeout (fallback)
+        # Timeout mais longo (2 minutos) como fallback
         if tentativas_sem_mudanca >= max_tentativas:
-            logger.warning(f"Timeout após {tentativas_sem_mudanca * 0.5}s")
+            logger.warning(
+                f"Timeout após {tentativas_sem_mudanca * 0.5}s. "
+                f"Processados {len(anos_ja_processados)}/{len(anos_esperados) if anos_esperados else '?'} anos"
+            )
+            
             yield _criar_resposta_final(
                 todos_dados,
                 total_dados_nao_processados,
                 periodo_base,
                 ipca_base,
                 tipo_correcao,
-                observacao=f"Processamento parcial - timeout. Processados {len(anos_ja_processados)} anos"
+                observacao=f"Timeout - processados apenas {len(anos_ja_processados)} anos"
             )
             break
-
 
 def _extrair_dados_ano(info_ano: Any) -> List[Dict]:
     """Extrai lista de dados de um ano (lida com diferentes estruturas)."""
