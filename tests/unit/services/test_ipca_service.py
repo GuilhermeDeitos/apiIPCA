@@ -1,25 +1,64 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from fastapi import HTTPException
-from app.services.ipca_service import IPCAService, ipca_service
+from app.services.ipca_service import IPCAService
+
+
+@pytest.fixture(autouse=True)
+def reset_ipca_service():
+    """Reset do singleton antes de cada teste."""
+    IPCAService.reset_instance()
+    yield
+    IPCAService.reset_instance()
+
+
+@pytest.fixture
+def mock_carregar_ipca(mocker):
+    """Mock da função carregar_dados_ipca para evitar chamadas reais."""
+    mock_dados = {
+        "01/2020": 100.0,
+        "02/2020": 101.5,
+        "12/2023": 120.0
+    }
+    
+    mock = mocker.patch(
+        "app.services.ipca_service.carregar_dados_ipca",
+        return_value=(mock_dados, "Dados do IPCA carregados")
+    )
+    mocker.patch(
+        "app.services.ipca_service.verificar_dados_ipca_disponiveis",
+        return_value=True
+    )
+    
+    return mock
+
+
+@pytest.fixture
+def ipca_service_mock(mock_carregar_ipca):
+    """Fixture que retorna uma instância mockada do IPCAService."""
+    service = IPCAService()
+    return service
 
 
 class TestIPCAServiceInicializacao:
     """Testes para inicialização do serviço IPCA."""
     
-    def test_inicializacao_carrega_dados(self, mocker):
-        """Testa se o serviço carrega dados do IPCA na inicialização."""
+    def test_inicializacao_carrega_dados_com_sucesso(self, mocker):
+        """Testa se o serviço carrega dados do IPCA na inicialização com sucesso."""
         # Arrange
         mock_dados = {
             "01/2020": 100.0,
-            "02/2020": 101.5,
-            "12/2023": 120.0
+            "02/2020": 101.5
         }
-        mock_info = "Dados do IPCA carregados com sucesso (2020-2023)"
+        mock_info = "Dados do IPCA carregados com sucesso"
         
         mock_carregar = mocker.patch(
             "app.services.ipca_service.carregar_dados_ipca",
             return_value=(mock_dados, mock_info)
+        )
+        mock_verificar = mocker.patch(
+            "app.services.ipca_service.verificar_dados_ipca_disponiveis",
+            return_value=True
         )
         
         # Act
@@ -27,20 +66,70 @@ class TestIPCAServiceInicializacao:
         
         # Assert
         mock_carregar.assert_called_once()
+        mock_verificar.assert_called_once_with(mock_dados)
         assert service._ipca_dict == mock_dados
         assert service._ipca_info == mock_info
+        assert service._dados_disponiveis is True
     
-    def test_inicializacao_com_erro_na_carga(self, mocker):
-        """Testa comportamento quando falha ao carregar dados do IPCA."""
+    def test_singleton_retorna_mesma_instancia(self, mock_carregar_ipca):
+        """Testa que o padrão Singleton funciona."""
+        # Act
+        service1 = IPCAService()
+        service2 = IPCAService()
+        
+        # Assert
+        assert service1 is service2
+        # carregar_dados_ipca deve ser chamado apenas 1 vez
+        assert mock_carregar_ipca.call_count == 1
+    
+    def test_inicializacao_sem_dados_marca_indisponivel(self, mocker):
+        """Testa inicialização quando dados não estão disponíveis."""
         # Arrange
         mocker.patch(
             "app.services.ipca_service.carregar_dados_ipca",
-            side_effect=Exception("Erro ao conectar com IPEA")
+            return_value=({}, "Erro ao carregar após 3 tentativas")
+        )
+        mocker.patch(
+            "app.services.ipca_service.verificar_dados_ipca_disponiveis",
+            return_value=False
         )
         
+        # Act
+        service = IPCAService()
+        
+        # Assert
+        assert service._dados_disponiveis is False
+        assert service._ipca_dict == {}
+
+
+class TestIPCAServiceVerificarDisponibilidade:
+    """Testes para verificação de disponibilidade."""
+    
+    def test_verificar_disponibilidade_dados_disponiveis_nao_lanca_excecao(self, ipca_service_mock):
+        """Testa que não lança exceção quando dados estão disponíveis."""
+        # Act & Assert (não deve lançar exceção)
+        ipca_service_mock.verificar_disponibilidade()
+    
+    def test_verificar_disponibilidade_sem_dados_lanca_excecao(self, mocker):
+        """Testa que lança exceção 503 quando dados não estão disponíveis."""
+        # Arrange
+        mocker.patch(
+            "app.services.ipca_service.carregar_dados_ipca",
+            return_value=({}, "Erro")
+        )
+        mocker.patch(
+            "app.services.ipca_service.verificar_dados_ipca_disponiveis",
+            return_value=False
+        )
+        
+        service = IPCAService()
+        
         # Act & Assert
-        with pytest.raises(Exception, match="Erro ao conectar com IPEA"):
-            IPCAService()
+        with pytest.raises(HTTPException) as exc_info:
+            service.verificar_disponibilidade()
+        
+        assert exc_info.value.status_code == 503
+        assert "indisponível" in str(exc_info.value.detail).lower()
 
 
 class TestIPCAServiceObterTodosDados:

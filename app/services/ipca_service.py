@@ -1,17 +1,77 @@
-from app.utils.carregar_ipca import carregar_dados_ipca
+from app.utils.carregar_ipca import (
+    carregar_dados_ipca, 
+    verificar_dados_ipca_disponiveis,
+    obter_status_carregamento_ipca
+)
 from typing import Dict, Optional, Tuple, List
 from fastapi import HTTPException
 from collections import defaultdict
+import logging
+
+logger = logging.getLogger(__name__)
 
 class IPCAService:
     """Serviço para gerenciar operações relacionadas ao IPCA"""
     
+    _instance: Optional['IPCAService'] = None
+    _initialized: bool = False
+    
+    def __new__(cls):
+        """Implementa Singleton para garantir uma única instância."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        """Inicializa o serviço carregando os dados do IPCA"""
-        self._ipca_dict, self._ipca_info = carregar_dados_ipca()
+        """Inicializa o serviço carregando os dados do IPCA (apenas uma vez)"""
+        if not IPCAService._initialized:
+            self._ipca_dict, self._ipca_info = carregar_dados_ipca()
+            self._dados_disponiveis = verificar_dados_ipca_disponiveis(self._ipca_dict)
+            
+            if not self._dados_disponiveis:
+                logger.error("ATENÇÃO: API iniciada SEM dados do IPCA! Funcionalidade limitada.")
+            else:
+                logger.info(f"Serviço IPCA inicializado com sucesso: {self._ipca_info}")
+            
+            IPCAService._initialized = True
+    
+    @classmethod
+    def reset_instance(cls):
+        """Reset da instância (útil para testes)"""
+        cls._instance = None
+        cls._initialized = False
+        
+    def verificar_disponibilidade(self) -> None:
+        """
+        Verifica se os dados do IPCA estão disponíveis.
+        Lança exceção se não estiverem.
+        
+        Raises:
+            HTTPException: Se dados não disponíveis
+        """
+        if not self._dados_disponiveis:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "erro": "Serviço IPCA temporariamente indisponível",
+                    "mensagem": "Não foi possível carregar dados do IPEA. Tente novamente mais tarde.",
+                    "info": self._ipca_info
+                }
+            )
+    
+    def obter_status_servico(self) -> Dict:
+        """
+        Retorna informações sobre o status do serviço IPCA.
+        
+        Returns:
+            Dicionário com status do serviço
+        """
+        return obter_status_carregamento_ipca(self._ipca_dict, self._ipca_info)
     
     def obter_todos_dados(self) -> Dict:
         """Retorna todos os dados do IPCA"""
+        self.verificar_disponibilidade()
+        
         return {
             "info": self._ipca_info,
             "data": self._ipca_dict
@@ -29,8 +89,10 @@ class IPCAService:
             Dicionário com data e valor do IPCA
             
         Raises:
-            HTTPException: Se a data não for encontrada
+            HTTPException: Se a data não for encontrada ou serviço indisponível
         """
+        self.verificar_disponibilidade()
+        
         data_key = f"{mes}/{ano}"
         if data_key in self._ipca_dict:
             return {"data": data_key, "valor": self._ipca_dict[data_key]}
@@ -48,28 +110,23 @@ class IPCAService:
             Valor do IPCA para o período
             
         Raises:
-            ValueError: Se o período não for encontrado
+            ValueError: Se o período não for encontrado ou serviço indisponível
         """
+        if not self._dados_disponiveis:
+            raise ValueError("Serviço IPCA temporariamente indisponível")
+        
         if periodo in self._ipca_dict:
             return self._ipca_dict[periodo]
         else:
             raise ValueError(f"IPCA não encontrado para {periodo}")
     
+    # ... resto dos métodos mantendo a estrutura, mas adicionando 
+    # self.verificar_disponibilidade() no início de cada um
+    
     def obter_ipca_por_periodo(self, mes: str, ano: str) -> float:
-        """
-        Obtém o valor do IPCA para um período específico (mes/ano separados).
-        Método auxiliar para uso interno.
+        """Obtém o valor do IPCA para um período específico."""
+        self.verificar_disponibilidade()
         
-        Args:
-            mes: Mês (01-12)
-            ano: Ano (ex: 2023)
-            
-        Returns:
-            Valor do IPCA
-            
-        Raises:
-            ValueError: Se não encontrado
-        """
         data_key = f"{mes}/{ano}"
         if data_key in self._ipca_dict:
             return self._ipca_dict[data_key]
@@ -77,21 +134,12 @@ class IPCAService:
             raise ValueError(f"IPCA não encontrado para {data_key}")
     
     def obter_media_anual(self, ano: str, meses: List[int] = None) -> Dict:
-        """
-        Calcula a média do IPCA para um ano específico.
+        """Calcula a média do IPCA para um ano específico."""
+        self.verificar_disponibilidade()
         
-        Args:
-            ano: Ano para calcular a média (ex: 2023)
-            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
-
-        Returns:
-            Dicionário com ano, média e meses disponíveis
-        """
-        # Se meses não foi fornecido, usar todos os meses do ano
         if meses is None:
             meses = list(range(1, 13))
         else:
-            # Validar meses fornecidos
             for mes in meses:
                 if mes < 1 or mes > 12:
                     raise HTTPException(status_code=400, detail=f"Mês inválido: {mes}")
@@ -125,17 +173,9 @@ class IPCAService:
         }
 
     def calcular_media_anual(self, ano: str, meses: List[int] = None) -> float:
-        """
-        Calcula a média do IPCA para um ano específico (retorna apenas o valor).
+        """Calcula a média do IPCA para um ano específico (retorna apenas o valor)."""
+        self.verificar_disponibilidade()
         
-        Args:
-            ano: Ano para calcular a média
-            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
-            
-        Returns:
-            Média do IPCA para o ano/meses especificados
-        """
-        # Se meses não foi fornecido, usar todos os meses do ano
         if meses is None:
             meses = list(range(1, 13))
         
@@ -151,18 +191,10 @@ class IPCAService:
         return sum(valores) / len(valores)
 
     def obter_medias_multiplos_anos(self, anos: List[str], meses: List[int] = None) -> Dict:
-        """
-        Calcula médias do IPCA para múltiplos anos.
+        """Calcula médias do IPCA para múltiplos anos."""
+        self.verificar_disponibilidade()
         
-        Args:
-            anos: Lista de anos
-            meses: Lista de meses específicos (opcional). Se não fornecido, usa todos os meses disponíveis.
-            
-        Returns:
-            Dicionário com médias por ano
-        """
         resultado = {}
-        
         for ano in anos:
             try:
                 resultado[ano] = self.obter_media_anual(ano, meses)
@@ -173,22 +205,9 @@ class IPCAService:
     
     def corrigir_valor(self, valor: float, mes_inicial: str, ano_inicial: str, 
                       mes_final: str, ano_final: str) -> Dict:
-        """
-        Corrige um valor monetário pelo IPCA.
+        """Corrige um valor monetário pelo IPCA."""
+        self.verificar_disponibilidade()
         
-        Args:
-            valor: Valor a ser corrigido
-            mes_inicial: Mês inicial com dois dígitos (01-12)
-            ano_inicial: Ano inicial
-            mes_final: Mês final com dois dígitos (01-12)
-            ano_final: Ano final
-            
-        Returns:
-            Dicionário com valores e índices
-            
-        Raises:
-            HTTPException: Se os índices não forem encontrados ou inválidos
-        """
         data_inicial = f"{mes_inicial}/{ano_inicial}"
         data_final = f"{mes_final}/{ano_final}"
 
@@ -207,7 +226,6 @@ class IPCAService:
         indice_ipca_inicial = self._ipca_dict[data_inicial]
         indice_ipca_final = self._ipca_dict[data_final]
 
-        # Validar índices IPCA
         if indice_ipca_inicial <= 0:
             raise HTTPException(
                 status_code=400,
@@ -220,11 +238,8 @@ class IPCAService:
                 detail=f"IPCA final inválido ({indice_ipca_final}). Deve ser maior que zero."
             )
 
-        # Cálculo da correção
         valor_corrigido = valor * (indice_ipca_final / indice_ipca_inicial)
         valor_corrigido = round(valor_corrigido, 2)
-        
-        # Calcular percentual de correção
         percentual_correcao = round(((indice_ipca_final / indice_ipca_inicial) - 1) * 100, 4)
 
         return {
@@ -237,60 +252,26 @@ class IPCAService:
             "percentual_correcao": percentual_correcao
         }
     
-    # ========== NOVOS MÉTODOS UTILITÁRIOS ==========
-    
     @staticmethod
     def converter_valor_monetario_string(valor_str: str) -> float:
-        """
-        Converte um valor monetário em formato string brasileiro para float.
-        
-        Args:
-            valor_str: Valor no formato brasileiro (ex: "1.200,00" ou "-1.200,00")
-            
-        Returns:
-            Valor como float
-            
-        Examples:
-            >>> IPCAService.converter_valor_monetario_string("1.200,00")
-            1200.0
-            >>> IPCAService.converter_valor_monetario_string("-500,50")
-            -500.5
-        """
-        # Remover formatação brasileira (pontos de milhar e vírgula decimal)
+        """Converte um valor monetário em formato string brasileiro para float."""
         valor_str = str(valor_str).replace(".", "").replace(",", ".")
-        
-        # Tratar valores negativos
         is_negative = valor_str.startswith("-")
         if is_negative:
             valor_str = valor_str[1:]
-        
         valor = float(valor_str)
-        
         return -valor if is_negative else valor
     
     @staticmethod
     def formatar_valor_brasileiro(valor: float) -> str:
-        """
-        Formata um valor float para o padrão monetário brasileiro.
-        
-        Args:
-            valor: Valor numérico
-            
-        Returns:
-            String formatada no padrão BR (ex: "1.200,00")
-            
-        Examples:
-            >>> IPCAService.formatar_valor_brasileiro(1200.0)
-            "1.200,00"
-            >>> IPCAService.formatar_valor_brasileiro(-500.5)
-            "-500,50"
-        """
-        # Formatar com 2 casas decimais e separadores
+        """Formata um valor float para o padrão monetário brasileiro."""
         formatted = f"{valor:,.2f}"
-        
-        # Trocar separadores (inglês -> português)
-        # 1,200.00 -> 1.200,00
         return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # Instância do serviço para uso nos endpoints
-ipca_service = IPCAService()
+def get_ipca_service() -> IPCAService:
+    """
+    Retorna a instância singleton do IPCAService.
+    Usar esta função ao invés de importar ipca_service diretamente.
+    """
+    return IPCAService()

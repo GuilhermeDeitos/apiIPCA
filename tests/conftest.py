@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 @pytest.fixture
@@ -82,3 +82,25 @@ def event_loop():
     yield loop
     
     loop.close()
+    
+@pytest.fixture(scope="session", autouse=True)
+def mock_ipca_loading_for_all_tests():
+    """
+    Mock global para evitar carregamento real do IPCA em todos os testes.
+    Apenas os testes específicos que quiserem testar o carregamento real
+    devem sobrescrever este mock.
+    """
+    mock_dados = {
+        "01/2020": 100.0,
+        "02/2020": 101.5,
+        "03/2020": 102.0,
+        "12/2023": 120.0
+    }
+    
+    with patch("app.services.ipca_service.carregar_dados_ipca") as mock_carregar, \
+         patch("app.services.ipca_service.verificar_dados_ipca_disponiveis") as mock_verificar:
+        
+        mock_carregar.return_value = (mock_dados, "Dados do IPCA carregados (mock)")
+        mock_verificar.return_value = True
+        
+        yield

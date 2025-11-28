@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 from app.utils.html_content import html_content
@@ -143,12 +144,39 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check para monitoramento."""
-    return {
-        "status": "healthy",
-        "service": "API IPCA",
-        "version": settings.APP_VERSION,
-        "root_path": ROOT_PATH
-    }
+    from app.services.ipca_service import ipca_service
+    
+    try:
+        # Verificar status do IPCA
+        status_ipca = ipca_service.obter_status_servico()
+        
+        # API está "healthy" mesmo sem IPCA (funcionalidade limitada)
+        health_status = {
+            "status": "healthy",
+            "service": "API IPCA",
+            "version": settings.APP_VERSION,
+            "root_path": ROOT_PATH,
+            "timestamp": datetime.now().isoformat(),
+            "ipca_service": status_ipca
+        }
+        
+        # Se não há dados IPCA, incluir aviso mas não falhar o health check
+        if not status_ipca.get("dados_disponiveis"):
+            health_status["aviso"] = "Serviço funcionando com capacidade limitada (sem dados IPCA)"
+        
+        return health_status
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=200,  # Manter 200 para não derrubar o container
+            content={
+                "status": "degraded",
+                "service": "API IPCA",
+                "error": str(e),
+                "aviso": "Serviço parcialmente funcional"
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

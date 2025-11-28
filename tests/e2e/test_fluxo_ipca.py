@@ -35,7 +35,7 @@ def mock_ipca_service():
     
     mock.obter_valor_por_data = Mock(side_effect=obter_valor_por_data_side_effect)
     
-    # ✅ MUDANÇA: Mock dinâmico para corrigir_valor que respeita os parâmetros
+    #  Mock dinâmico para corrigir_valor que respeita os parâmetros
     def corrigir_valor_side_effect(valor: float, mes_inicial: str, ano_inicial: str, 
                                    mes_final: str, ano_final: str):
         from fastapi import HTTPException
@@ -275,7 +275,7 @@ class TestFluxoIntegracaoCompleta:
         assert response.status_code == 200
         resultado = response.json()
         
-        # ✅ MUDANÇA: Verificar que o valor inicial é realmente 5000
+        #  Verificar que o valor inicial é realmente 5000
         assert resultado["valor_inicial"] == 5000.0
         
         # Verificar cálculo: 5000 * (120/100) = 6000
@@ -322,12 +322,13 @@ class TestFluxoCacheIPCA:
         mock_stats_inicial = {"existe": False, "total_registros": 0}
         mock_stats_apos = {"existe": True, "total_registros": 200}
         
+        #  Mockar no local de origem (carregar_ipca)
         mocker.patch(
-            "app.routes.ipca.obter_estatisticas_cache",
+            "app.utils.carregar_ipca.obter_estatisticas_cache",
             side_effect=[mock_stats_inicial, mock_stats_apos]
         )
         mocker.patch(
-            "app.routes.ipca.forcar_atualizacao_cache",
+            "app.utils.carregar_ipca.forcar_atualizacao_cache",
             return_value=(True, "Cache atualizado")
         )
         

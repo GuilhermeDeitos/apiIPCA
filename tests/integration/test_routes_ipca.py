@@ -393,8 +393,9 @@ class TestIPCACacheRoutes:
             "caminho": "/data/series_ipca.json"
         }
         
+        # Mockar no local de origem (carregar_ipca)
         mocker.patch(
-            "app.routes.ipca.obter_estatisticas_cache",
+            "app.utils.carregar_ipca.obter_estatisticas_cache",
             return_value=mock_stats
         )
         
@@ -418,8 +419,9 @@ class TestIPCACacheRoutes:
             "tamanho_arquivo": 0
         }
         
+        # Mockar no local de origem
         mocker.patch(
-            "app.routes.ipca.obter_estatisticas_cache",
+            "app.utils.carregar_ipca.obter_estatisticas_cache",
             return_value=mock_stats
         )
         
@@ -435,8 +437,9 @@ class TestIPCACacheRoutes:
     def test_post_atualizar_cache_sucesso(self, client, mocker):
         """Testa endpoint POST /ipca/cache/atualizar."""
         # Arrange
+        # Mockar no local de origem
         mocker.patch(
-            "app.routes.ipca.forcar_atualizacao_cache",
+            "app.utils.carregar_ipca.forcar_atualizacao_cache",
             return_value=(True, "Cache atualizado com 200 registros")
         )
         
@@ -452,8 +455,9 @@ class TestIPCACacheRoutes:
     def test_post_atualizar_cache_falha(self, client, mocker):
         """Testa atualização de cache com falha."""
         # Arrange
+        # Mockar no local de origem
         mocker.patch(
-            "app.routes.ipca.forcar_atualizacao_cache",
+            "app.utils.carregar_ipca.forcar_atualizacao_cache",
             return_value=(False, "Erro ao conectar com API")
         )
         
@@ -467,8 +471,9 @@ class TestIPCACacheRoutes:
     def test_cache_status_erro_interno(self, client, mocker):
         """Testa tratamento de erro interno ao obter status."""
         # Arrange
+        # Mockar no local de origem
         mocker.patch(
-            "app.routes.ipca.obter_estatisticas_cache",
+            "app.utils.carregar_ipca.obter_estatisticas_cache",
             side_effect=Exception("Erro inesperado")
         )
         
