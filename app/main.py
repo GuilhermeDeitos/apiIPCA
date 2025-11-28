@@ -144,9 +144,12 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check para monitoramento."""
-    from app.services.ipca_service import ipca_service
+    from app.services.ipca_service import get_ipca_service
     
     try:
+        # Obter instância do serviço
+        ipca_service = get_ipca_service()
+        
         # Verificar status do IPCA
         status_ipca = ipca_service.obter_status_servico()
         
@@ -177,6 +180,7 @@ async def health_check():
                 "aviso": "Serviço parcialmente funcional"
             }
         )
+
 
 if __name__ == "__main__":
     import uvicorn
