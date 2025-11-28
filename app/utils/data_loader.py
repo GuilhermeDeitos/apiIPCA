@@ -35,17 +35,23 @@ async def consultar_transparencia_streaming(
     Yields:
         Dicionários com dados parciais e finais
     """
-    from app.services.ipca_service import ipca_service
+    #  MUDANÇA: Importar função ao invés de instância
+    from app.services.ipca_service import get_ipca_service
     
     # Verificar cancelamento inicial
     if cancel_event and cancel_event.is_set():
         logger.info("Operação cancelada antes de iniciar")
         return
     
+    #  MUDANÇA: Obter instância do serviço
+    ipca_service = get_ipca_service()
+    
     # Inicializar componentes
     api_client = ApiCrawlerClient()
     ipca_calc = IPCACalculator(ipca_service)
     corrector = MonetaryCorrector(ipca_calc)
+    
+    # ... resto do código permanece igual
     
     # Determinar período base e obter IPCA de referência
     periodo_base = ipca_calc.determinar_periodo_base(ipca_referencia, tipo_correcao)
@@ -70,7 +76,6 @@ async def consultar_transparencia_streaming(
     
     # Processar resposta
     if resposta_inicial.get("processamento") == "sincrono":
-        # Processamento síncrono (ano único)
         async for evento in _processar_sincrono(
             resposta_inicial,
             ipca_base,
@@ -82,7 +87,6 @@ async def consultar_transparencia_streaming(
             yield evento
     
     elif "id_consulta" in resposta_inicial:
-        # Processamento assíncrono (múltiplos anos)
         async for evento in _processar_assincrono(
             resposta_inicial["id_consulta"],
             api_client,
@@ -118,14 +122,12 @@ async def _processar_sincrono(
             logger.info("Cancelamento durante processamento síncrono")
             return
         
-        # Extrair dados do ano
         dados_ano = _extrair_dados_ano(info_ano)
         if not dados_ano:
             continue
         
         logger.info(f"Processando dados do ano {ano_str}: {len(dados_ano)} registros")
         
-        # Aplicar correção
         dados_corrigidos, dados_nao_processados = corrector.processar_correcao_dados(
             dados_ano,
             ipca_base,
@@ -137,7 +139,6 @@ async def _processar_sincrono(
         todos_dados.extend(dados_corrigidos)
         total_dados_nao_processados.extend(dados_nao_processados)
         
-        # Enviar dados parciais
         yield {
             "status": "parcial",
             "ano_processado": int(ano_str),
@@ -146,7 +147,6 @@ async def _processar_sincrono(
             "dados": dados_corrigidos
         }
     
-    # Enviar resposta final
     yield {
         "status": "completo",
         "total_registros": len(todos_dados),
@@ -172,7 +172,6 @@ async def _processar_assincrono(
     """Processa resposta assíncrona (múltiplos anos)."""
     logger.info(f"Processamento assíncrono iniciado. ID: {id_consulta}")
     
-    # Enviar ID imediatamente
     yield {
         "status": "iniciando",
         "id_consulta": id_consulta,
@@ -185,6 +184,9 @@ async def _processar_assincrono(
     tentativas_sem_mudanca = 0
     max_tentativas = 60
     
+    # Armazenar anos esperados
+    anos_esperados = None
+    
     while True:
         if cancel_event and cancel_event.is_set():
             logger.info("Cancelamento durante processamento assíncrono")
@@ -192,47 +194,67 @@ async def _processar_assincrono(
         
         await asyncio.sleep(2)
         
-        # Verificar status
         try:
             status_data = await api_client.verificar_status_consulta(id_consulta)
         except Exception as e:
             logger.error(f"Erro ao verificar status: {e}")
             break
         
-        # Processar dados disponíveis
+        # Capturar total de anos esperados na primeira consulta
+        if anos_esperados is None and "anos_concluidos" in status_data:
+            anos_concluidos_resp = status_data.get("anos_concluidos", [])
+            anos_pendentes_resp = status_data.get("anos_pendentes", [])
+            if anos_concluidos_resp or anos_pendentes_resp:
+                anos_esperados = set(anos_concluidos_resp) | set(anos_pendentes_resp)
+                logger.info(f"Total de anos esperados: {len(anos_esperados)} - {sorted(anos_esperados)}")
+        
         dados_por_ano = DataExtractor.extrair_dados_de_resposta(status_data)
         
         if dados_por_ano:
             novos_anos = False
             
             for ano_str, info_ano in dados_por_ano.items():
-                if ano_str in anos_ja_processados:
+                ano_int = int(ano_str)
+                
+                if ano_int in anos_ja_processados:
                     continue
                 
                 dados_ano = _extrair_dados_ano(info_ano)
                 if not dados_ano:
+                    # Mesmo sem dados, marcar ano como processado
+                    logger.warning(f"Ano {ano_str}: SEM DADOS, mas marcando como processado")
+                    anos_ja_processados.add(ano_int)
+                    
+                    # Enviar evento parcial mesmo sem dados
+                    yield {
+                        "status": "parcial",
+                        "ano_processado": ano_int,
+                        "total_registros_ano": 0,
+                        "total_nao_processados_ano": 0,
+                        "dados": [],
+                        "observacao": "Ano sem dados disponíveis"
+                    }
+                    novos_anos = True
                     continue
                 
                 logger.info(f"Processando ano {ano_str}: {len(dados_ano)} registros")
-                anos_ja_processados.add(ano_str)
+                anos_ja_processados.add(ano_int)
                 novos_anos = True
                 
-                # Aplicar correção
                 dados_corrigidos, dados_nao_processados = corrector.processar_correcao_dados(
                     dados_ano,
                     ipca_base,
                     periodo_base,
                     tipo_correcao,
-                    ano_contexto=int(ano_str)
+                    ano_contexto=ano_int
                 )
                 
                 todos_dados.extend(dados_corrigidos)
                 total_dados_nao_processados.extend(dados_nao_processados)
                 
-                # Enviar dados parciais
                 yield {
                     "status": "parcial",
-                    "ano_processado": int(ano_str),
+                    "ano_processado": ano_int,
                     "total_registros_ano": len(dados_corrigidos),
                     "total_nao_processados_ano": len(dados_nao_processados),
                     "dados": dados_corrigidos
@@ -242,25 +264,66 @@ async def _processar_assincrono(
         else:
             tentativas_sem_mudanca += 1
         
-        # Verificar conclusão
-        if status_data.get("status") == "concluido":
-            logger.info("Consulta concluída - Enviando evento final SEM dados")
+        # Verificar se TODOS os anos esperados foram processados
+        if anos_esperados and len(anos_ja_processados) >= len(anos_esperados):
+            logger.info(
+                f"Todos os {len(anos_esperados)} anos esperados foram processados. "
+                f"Anos processados: {sorted(anos_ja_processados)}"
+            )
             
+            # Aguardar um pouco para garantir que todos os eventos foram enviados
+            await asyncio.sleep(1)
+            
+            # Verificar novamente se backend confirmou conclusão
+            try:
+                status_final = await api_client.verificar_status_consulta(id_consulta)
+                if status_final.get("status") != "concluido":
+                    logger.warning(
+                        f"Backend ainda não marcou como concluído. Status: {status_final.get('status')}"
+                    )
+                    # Aguardar mais um pouco
+                    await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Erro ao verificar status final: {e}")
+            
+            # Enviar evento completo AGORA
+            logger.info("Enviando evento COMPLETO após confirmar todos os anos processados")
             yield {
                 "status": "completo",
                 "total_registros": len(todos_dados),
                 "total_nao_processados": len(total_dados_nao_processados),
-                "dados": [],  
+                "dados": [],
                 "dados_nao_processados": total_dados_nao_processados,
                 "periodo_base_ipca": periodo_base,
                 "ipca_referencia": ipca_base,
                 "tipo_correcao": tipo_correcao,
                 "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
-                "mensagem": "Dados já foram enviados nos eventos parciais"
+                "mensagem": f"Processamento concluído: {len(anos_ja_processados)} anos"
             }
             break
         
-        # Timeout
+        # Verificar status do backend apenas como fallback
+        if status_data.get("status") == "concluido":
+            logger.warning(
+                f"Backend marcou como concluído, mas processamos apenas "
+                f"{len(anos_ja_processados)} anos de {len(anos_esperados) if anos_esperados else '?'}"
+            )
+            
+            # Se backend disse que está completo, respeitar
+            yield {
+                "status": "completo",
+                "total_registros": len(todos_dados),
+                "total_nao_processados": len(total_dados_nao_processados),
+                "dados": [],
+                "dados_nao_processados": total_dados_nao_processados,
+                "periodo_base_ipca": periodo_base,
+                "ipca_referencia": ipca_base,
+                "tipo_correcao": tipo_correcao,
+                "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
+                "observacao": "Concluído pelo backend antes de processar todos os anos esperados"
+            }
+            break
+        
         if tentativas_sem_mudanca >= max_tentativas:
             logger.warning(f"Timeout após {tentativas_sem_mudanca * 2}s")
             yield _criar_resposta_final(
@@ -269,10 +332,9 @@ async def _processar_assincrono(
                 periodo_base,
                 ipca_base,
                 tipo_correcao,
-                observacao="Processamento parcial - timeout"
+                observacao=f"Processamento parcial - timeout. Processados {len(anos_ja_processados)} anos"
             )
             break
-
 
 def _extrair_dados_ano(info_ano: Any) -> List[Dict]:
     """Extrai lista de dados de um ano (lida com diferentes estruturas)."""
@@ -321,15 +383,6 @@ async def carregar_dados_portal_transparencia(
     """
     Carrega dados do Portal da Transparência com correção monetária.
     Versão simplificada que aguarda todos os dados.
-    
-    Args:
-        data_inicio: Data de início (MM/AAAA)
-        data_fim: Data de fim (MM/AAAA)
-        tipo_correcao: "mensal" ou "anual"
-        ipca_referencia: Período de referência IPCA (opcional)
-        
-    Returns:
-        Dicionário com dados completos processados
     """
     resultado_final = {}
     
@@ -356,10 +409,7 @@ def processar_correcao_dados(
     tipo_correcao: str = "mensal",
     ano_contexto: int = None
 ) -> Tuple[list, list]:
-    """
-    Interface legada para processar correção de dados.
-    Mantida para compatibilidade com código existente.
-    """
+    """Interface legada para processar correção de dados."""
     ipca_calc = IPCACalculator(ipca_service)
     corrector = MonetaryCorrector(ipca_calc)
     
@@ -373,10 +423,7 @@ def processar_correcao_dados(
 
 
 def reorganizar_dados_por_ano(dados: list) -> Dict[str, Any]:
-    """
-    Interface legada para reorganizar dados por ano.
-    Mantida para compatibilidade.
-    """
+    """Interface legada para reorganizar dados por ano."""
     return DataOrganizer.reorganizar_por_ano(dados)
 
 
