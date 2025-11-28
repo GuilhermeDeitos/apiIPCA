@@ -182,20 +182,19 @@ async def _processar_assincrono(
     todos_dados = []
     total_dados_nao_processados = []
     tentativas_sem_mudanca = 0
-    max_tentativas = 60
+    max_tentativas = 120  # Aumentar timeout para 2 minutos
     
-    # Armazenar anos esperados
     anos_esperados = None
-    
-    # Flag para controlar se backend já disse que está completo
     backend_disse_completo = False
+    ciclos_apos_completo = 0  # Contador de ciclos após backend dizer completo
     
     while True:
         if cancel_event and cancel_event.is_set():
             logger.info("Cancelamento durante processamento assíncrono")
             return
         
-        await asyncio.sleep(2)
+        # Reduzir intervalo de 2s para 0.5s
+        await asyncio.sleep(0.5)
         
         try:
             status_data = await api_client.verificar_status_consulta(id_consulta)
@@ -203,18 +202,19 @@ async def _processar_assincrono(
             logger.error(f"Erro ao verificar status: {e}")
             break
         
-        # Verificar status do backend PRIMEIRO
+        # Verificar status do backend
         if status_data.get("status") == "concluido":
-            backend_disse_completo = True
-            logger.info("Backend marcou como concluído")
+            if not backend_disse_completo:
+                backend_disse_completo = True
+                logger.info("Backend marcou como concluído")
+            ciclos_apos_completo += 1
         
         # Capturar total de anos esperados na primeira consulta
         if anos_esperados is None:
             anos_concluidos_resp = status_data.get("anos_concluidos", [])
             anos_pendentes_resp = status_data.get("anos_pendentes", [])
-            
-            # Também verificar dados_parciais_por_ano
             dados_parciais = status_data.get("dados_parciais_por_ano", {})
+            
             if dados_parciais:
                 anos_com_dados = {int(ano) for ano in dados_parciais.keys()}
                 anos_esperados = anos_com_dados | set(anos_concluidos_resp) | set(anos_pendentes_resp)
@@ -237,11 +237,9 @@ async def _processar_assincrono(
                 
                 dados_ano = _extrair_dados_ano(info_ano)
                 if not dados_ano:
-                    # Mesmo sem dados, marcar ano como processado
                     logger.warning(f"Ano {ano_str}: SEM DADOS, mas marcando como processado")
                     anos_ja_processados.add(ano_int)
                     
-                    # Enviar evento parcial mesmo sem dados
                     yield {
                         "status": "parcial",
                         "ano_processado": ano_int,
@@ -280,26 +278,42 @@ async def _processar_assincrono(
         else:
             tentativas_sem_mudanca += 1
         
-        # Verificação mais robusta para finalizar
-        # Condição 1: Temos anos esperados E processamos todos
+        # Verificação mais robusta
         todos_anos_processados = anos_esperados and len(anos_ja_processados) >= len(anos_esperados)
         
-        # Condição 2: Backend disse completo E (temos anos processados OU passou tempo suficiente)
-        backend_completo_com_dados = backend_disse_completo and (
-            len(anos_ja_processados) > 0 or tentativas_sem_mudanca >= 3
-        )
+        # Aguardar pelo menos 6 ciclos (3 segundos) após backend dizer completo
+        backend_completo_com_espera = backend_disse_completo and ciclos_apos_completo >= 6
         
-        if todos_anos_processados or backend_completo_com_dados:
-            motivo = "todos os anos processados" if todos_anos_processados else "backend confirmou conclusão"
+        if todos_anos_processados:
             logger.info(
-                f"Finalizando consulta - {motivo}. "
+                f"Finalizando consulta - todos os anos processados. "
+                f"Anos processados: {len(anos_ja_processados)}/{len(anos_esperados)}"
+            )
+            await asyncio.sleep(0.5)  # Aguardar mais um pouco
+            
+            yield {
+                "status": "completo",
+                "total_registros": len(todos_dados),
+                "total_nao_processados": len(total_dados_nao_processados),
+                "dados": [],
+                "dados_nao_processados": total_dados_nao_processados,
+                "periodo_base_ipca": periodo_base,
+                "ipca_referencia": ipca_base,
+                "tipo_correcao": tipo_correcao,
+                "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
+                "mensagem": f"Processamento concluído: {len(anos_ja_processados)} anos"
+            }
+            break
+        
+        # Backend completo + aguardou + processou pelo menos alguns anos
+        if backend_completo_com_espera and len(anos_ja_processados) > 0:
+            logger.info(
+                f"Finalizando consulta - backend confirmou após espera de {ciclos_apos_completo} ciclos. "
                 f"Anos processados: {len(anos_ja_processados)}/{len(anos_esperados) if anos_esperados else '?'}"
             )
             
-            # Aguardar um pouco para garantir que todos os eventos foram enviados
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             
-            # Enviar evento completo
             yield {
                 "status": "completo",
                 "total_registros": len(todos_dados),
@@ -316,7 +330,7 @@ async def _processar_assincrono(
         
         # Timeout (fallback)
         if tentativas_sem_mudanca >= max_tentativas:
-            logger.warning(f"Timeout após {tentativas_sem_mudanca * 2}s")
+            logger.warning(f"Timeout após {tentativas_sem_mudanca * 0.5}s")
             yield _criar_resposta_final(
                 todos_dados,
                 total_dados_nao_processados,
@@ -326,6 +340,7 @@ async def _processar_assincrono(
                 observacao=f"Processamento parcial - timeout. Processados {len(anos_ja_processados)} anos"
             )
             break
+
 
 def _extrair_dados_ano(info_ano: Any) -> List[Dict]:
     """Extrai lista de dados de um ano (lida com diferentes estruturas)."""
