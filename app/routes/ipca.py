@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query, HTTPException, Request
-from app.services.ipca_service import ipca_service
+from fastapi import APIRouter, Query, HTTPException, Request, Depends
+from app.services.ipca_service import IPCAService, get_ipca_service
 from app.models.ipca_model import IPCAInfo, IPCAValor, IPCACorrecao, IPCAMediaAnual
 from typing import List
 import re
@@ -109,9 +109,15 @@ def validar_valor(valor: float) -> float:
     
     return round(valor, 2)
 
+# Dependency
+def get_service() -> IPCAService:
+    """Dependency para injetar o serviço IPCA."""
+    return get_ipca_service()
+
+
 
 @router.get("/ipca", response_model=IPCAInfo)
-async def get_ipca(request: Request):
+async def get_ipca_data(request: Request, service: IPCAService = Depends(get_ipca_service)):
     """
     Retorna todos os dados do IPCA.
     
@@ -119,15 +125,29 @@ async def get_ipca(request: Request):
     
     Returns:
         Dicionário com informações e dados completos do IPCA
+        
+    Raises:
+        HTTPException 503: Se serviço IPCA indisponível
     """
-    return ipca_service.obter_todos_dados()
+    try:
+        return service.obter_todos_dados()
+    except HTTPException as e:
+        # Re-lançar HTTPException para FastAPI tratar
+        raise e
+    except Exception as e:
+        # Tratar erros inesperados
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno ao obter dados IPCA: {str(e)}"
+        )
 
 
 @router.get("/ipca/filtro", response_model=IPCAValor)
 async def get_ipca_mes_ano(
     request: Request,
     mes: str = Query(..., examples=["12"], description="Mês com dois dígitos (01-12)"),
-    ano: str = Query(..., examples=["2023"], description="Ano (ex: 2023)")
+    ano: str = Query(..., examples=["2023"], description="Ano (ex: 2023)"),
+    service: IPCAService = Depends(get_ipca_service)
 ):
     """
     Consulta o valor do IPCA para um mês e ano específicos.
@@ -144,16 +164,28 @@ async def get_ipca_mes_ano(
         
     Returns:
         Objeto com a data e o valor do IPCA
+        
+    Raises:
+        HTTPException 503: Se serviço IPCA indisponível
+        HTTPException 404: Se data não encontrada
     """
-    # Validar e sanitizar inputs
-    mes = validar_mes(mes)
-    ano = validar_ano(ano)
-    
-    return ipca_service.obter_valor_por_data(mes, ano)
+    try:
+        # Validar e sanitizar inputs
+        mes = validar_mes(mes)
+        ano = validar_ano(ano)
+        
+        return service.obter_valor_por_data(mes, ano)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno: {str(e)}"
+        )
 
 
 @router.get("/ipca/media-anual/{ano}", response_model=IPCAMediaAnual)
-async def get_ipca_media_anual(request: Request, ano: str):
+async def get_ipca_media_anual(request: Request, ano: str, service: IPCAService = Depends(get_ipca_service)):
     """
     Calcula a média anual do IPCA para um ano específico.
     
@@ -164,15 +196,28 @@ async def get_ipca_media_anual(request: Request, ano: str):
         
     Returns:
         Objeto com a média anual e detalhes dos meses
+        
+    Raises:
+        HTTPException 503: Se serviço IPCA indisponível
+        HTTPException 404: Se ano não tem dados
     """
-    ano = validar_ano(ano)
-    return ipca_service.obter_media_anual(ano)
+    try:
+        ano = validar_ano(ano)
+        return service.obter_media_anual(ano, meses=None)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno: {str(e)}"
+        )
 
 
 @router.get("/ipca/medias-anuais")
 async def get_ipca_medias_multiplos_anos(
     request: Request,
-    anos: List[str] = Query(..., description="Lista de anos para calcular médias")
+    anos: List[str] = Query(..., description="Lista de anos para calcular médias"),
+    service: IPCAService = Depends(get_ipca_service)
 ):
     """
     Calcula médias anuais do IPCA para múltiplos anos.
@@ -184,15 +229,26 @@ async def get_ipca_medias_multiplos_anos(
         
     Returns:
         Dicionário com médias por ano
+        
+    Raises:
+        HTTPException 503: Se serviço IPCA indisponível
     """
-    # Limitar quantidade de anos para evitar abuso
-    if len(anos) > 50:
-        raise HTTPException(status_code=400, detail="Máximo de 50 anos por requisição")
-    
-    # Validar cada ano
-    anos_validados = [validar_ano(ano) for ano in anos]
-    
-    return ipca_service.obter_medias_multiplos_anos(anos_validados)
+    try:
+        # Limitar quantidade de anos para evitar abuso
+        if len(anos) > 50:
+            raise HTTPException(status_code=400, detail="Máximo de 50 anos por requisição")
+        
+        # Validar cada ano
+        anos_validados = [validar_ano(ano) for ano in anos]
+        
+        return service.obter_medias_multiplos_anos(anos_validados)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno: {str(e)}"
+        )
 
 
 @router.get("/ipca/corrigir", response_model=IPCACorrecao)
@@ -202,7 +258,8 @@ async def corrigir_valor_ipca(
     mes_inicial: str = Query(..., examples=["01"], description="Mês inicial com dois dígitos (01-12)"),
     ano_inicial: str = Query(..., examples=["2020"], description="Ano inicial"),
     mes_final: str = Query(..., examples=["12"], description="Mês final com dois dígitos (01-12)"),
-    ano_final: str = Query(..., examples=["2023"], description="Ano final")
+    ano_final: str = Query(..., examples=["2023"], description="Ano final"),
+    service: IPCAService = Depends(get_ipca_service)
 ):
     """
     Corrige um valor monetário pela variação do IPCA entre duas datas.
@@ -223,12 +280,96 @@ async def corrigir_valor_ipca(
         
     Returns:
         Objeto com valor inicial, índices e valor corrigido
+        
+    Raises:
+        HTTPException 503: Se serviço IPCA indisponível
+        HTTPException 404: Se data não encontrada
     """
-    # Validar inputs
-    valor = validar_valor(valor)
-    mes_inicial = validar_mes(mes_inicial)
-    ano_inicial = validar_ano(ano_inicial)
-    mes_final = validar_mes(mes_final)
-    ano_final = validar_ano(ano_final)
+    try:
+        # Validar inputs
+        valor = validar_valor(valor)
+        mes_inicial = validar_mes(mes_inicial)
+        ano_inicial = validar_ano(ano_inicial)
+        mes_final = validar_mes(mes_final)
+        ano_final = validar_ano(ano_final)
+        
+        return service.corrigir_valor(valor, mes_inicial, ano_inicial, mes_final, ano_final)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno: {str(e)}"
+        )
+
+
+@router.get("/ipca/status")
+async def get_status_servico_ipca(request: Request, service: IPCAService = Depends(get_ipca_service)):
+    """
+    Verifica o status do serviço IPCA.
     
-    return ipca_service.corrigir_valor(valor, mes_inicial, ano_inicial, mes_final, ano_final)
+    **Rate Limit**: 60 requisições por minuto
+    
+    Returns:
+        Status do serviço e disponibilidade dos dados
+    """
+    try:
+        return service.obter_status_servico()
+    except Exception as e:
+        # Status SEMPRE retorna 200, mas com informação de erro
+        return {
+            "status": "erro",
+            "dados_disponiveis": False,
+            "total_registros": 0,
+            "mensagem": f"Erro ao verificar status: {str(e)}"
+        }
+        
+@router.get("/ipca/cache/status")
+async def get_cache_status(request: Request):
+    """
+    Retorna informações sobre o cache IPCA.
+    
+    Returns:
+        Estatísticas do cache
+    """
+    from app.utils.carregar_ipca import obter_estatisticas_cache
+    
+    try:
+        return obter_estatisticas_cache()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter status do cache: {str(e)}"
+        )
+
+
+@router.post("/ipca/cache/atualizar")
+async def atualizar_cache(request: Request):
+    """
+    Força atualização do cache IPCA.
+    
+    **ATENÇÃO**: Esta operação pode demorar alguns segundos.
+    
+    Returns:
+        Resultado da atualização
+    """
+    from app.utils.carregar_ipca import forcar_atualizacao_cache
+    
+    try:
+        sucesso, mensagem = forcar_atualizacao_cache()
+        
+        if sucesso:
+            return {
+                "status": "sucesso",
+                "mensagem": mensagem
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=mensagem
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao atualizar cache: {str(e)}"
+        )
