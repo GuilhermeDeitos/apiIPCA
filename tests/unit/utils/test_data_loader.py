@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from app.utils.data_loader import (
     consultar_transparencia_streaming,
     carregar_dados_portal_transparencia,
@@ -38,28 +38,45 @@ class TestConsultarTransparenciaStreaming:
         
         mocker.patch("app.utils.data_loader.ApiCrawlerClient", return_value=mock_api_client)
         
-        # Mock do ipca_service
-        with patch("app.services.ipca_service.ipca_service") as mock_ipca_service:
-            mock_ipca_service.obter_ipca_por_periodo.return_value = 100.0
-            mock_ipca_service.calcular_media_anual.return_value = 110.0
-            mock_ipca_service.converter_valor_monetario_string.side_effect = lambda v: float(str(v).replace(".", "").replace(",", "."))
-            mock_ipca_service.formatar_valor_brasileiro.side_effect = lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            
-            # Act
-            eventos = []
-            async for evento in consultar_transparencia_streaming("01/2020", "12/2020", "mensal"):
-                eventos.append(evento)
-            
-            # Assert
-            assert len(eventos) >= 2  # Parcial + completo
-            assert eventos[-1]["status"] == "completo"
-            assert "total_registros" in eventos[-1]
+        # Mock do get_ipca_service no local de origem (não em data_loader)
+        mock_ipca_service = Mock()
+        mock_ipca_service.obter_ipca_por_periodo = Mock(return_value=100.0)
+        mock_ipca_service.calcular_media_anual = Mock(return_value=110.0)
+        mock_ipca_service.converter_valor_monetario_string = Mock(
+            side_effect=lambda v: float(str(v).replace(".", "").replace(",", "."))
+        )
+        mock_ipca_service.formatar_valor_brasileiro = Mock(
+            side_effect=lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+        
+        # Mockar no módulo de origem onde get_ipca_service está definido
+        mocker.patch(
+            "app.services.ipca_service.get_ipca_service",
+            return_value=mock_ipca_service
+        )
+        
+        # Act
+        eventos = []
+        async for evento in consultar_transparencia_streaming("01/2020", "12/2020", "mensal"):
+            eventos.append(evento)
+        
+        # Assert
+        assert len(eventos) >= 2  # Parcial + completo
+        assert eventos[-1]["status"] == "completo"
+        assert "total_registros" in eventos[-1]
     
     async def test_consultar_streaming_cancelamento(self, mocker):
         """Testa cancelamento da operação."""
         # Arrange
         cancel_event = asyncio.Event()
         cancel_event.set()  # Já cancelado
+        
+        # Mockar no módulo de origem
+        mock_ipca_service = Mock()
+        mocker.patch(
+            "app.services.ipca_service.get_ipca_service",
+            return_value=mock_ipca_service
+        )
         
         # Act
         eventos = []
@@ -83,15 +100,13 @@ class TestFuncoesPublicas:
         """Testa função legada de carregamento."""
         # Arrange
         async def mock_generator():
-            # Evento parcial com TODOS os campos esperados
             yield {
                 "status": "parcial",
                 "ano_processado": 2020,
-                "total_registros_ano": 5,  # Campo obrigatório
-                "total_nao_processados_ano": 0,  # Campo obrigatório
+                "total_registros_ano": 5,
+                "total_nao_processados_ano": 0,
                 "dados": []
             }
-            # Evento completo
             yield {
                 "status": "completo",
                 "total_registros": 10,
@@ -120,7 +135,6 @@ class TestFuncoesPublicas:
         """Testa quando recebe apenas o evento completo (sem parciais)."""
         # Arrange
         async def mock_generator():
-            # Apenas evento completo (sem parciais)
             yield {
                 "status": "completo",
                 "total_registros": 100,
@@ -186,9 +200,13 @@ class TestFuncoesLegacySincronas:
         """Testa interface legada de processar_correcao_dados."""
         # Arrange
         ipca_service_mock = MagicMock()
-        ipca_service_mock.obter_ipca_por_periodo.return_value = 100.0
-        ipca_service_mock.converter_valor_monetario_string.side_effect = lambda v: float(str(v).replace(".", "").replace(",", "."))
-        ipca_service_mock.formatar_valor_brasileiro.side_effect = lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        ipca_service_mock.obter_ipca_por_periodo = Mock(return_value=100.0)
+        ipca_service_mock.converter_valor_monetario_string = Mock(
+            side_effect=lambda v: float(str(v).replace(".", "").replace(",", "."))
+        )
+        ipca_service_mock.formatar_valor_brasileiro = Mock(
+            side_effect=lambda v: f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
         
         dados = [
             {
