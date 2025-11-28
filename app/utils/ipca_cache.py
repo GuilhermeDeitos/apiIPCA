@@ -26,35 +26,44 @@ class IPCACache:
         """Garante que o diretório de cache existe."""
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
     
+    def _carregar_cache_sem_lock(self) -> Optional[Dict]:
+        """
+        Carrega cache sem lock (uso interno).
+        
+        Returns:
+            Dicionário com cache ou None
+        """
+        try:
+            if not self.cache_path.exists():
+                logger.info(f"Arquivo de cache não encontrado: {self.cache_path}")
+                return None
+            
+            with open(self.cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            logger.info(
+                f"Cache carregado: {cache_data.get('total_registros', 0)} registros, "
+                f"última atualização: {cache_data.get('ultima_atualizacao')}"
+            )
+            
+            return cache_data
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"Erro ao decodificar cache JSON: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Erro ao carregar cache: {e}")
+            return None
+    
     def carregar_cache(self) -> Optional[Dict]:
         """
-        Carrega o cache do arquivo JSON.
+        Carrega o cache do arquivo JSON (thread-safe).
         
         Returns:
             Dicionário com cache ou None se não existir/inválido
         """
         with cache_lock:
-            try:
-                if not self.cache_path.exists():
-                    logger.info(f"Arquivo de cache não encontrado: {self.cache_path}")
-                    return None
-                
-                with open(self.cache_path, 'r', encoding='utf-8') as f:
-                    cache_data = json.load(f)
-                
-                logger.info(
-                    f"Cache carregado: {cache_data.get('total_registros', 0)} registros, "
-                    f"última atualização: {cache_data.get('ultima_atualizacao')}"
-                )
-                
-                return cache_data
-            
-            except json.JSONDecodeError as e:
-                logger.error(f"Erro ao decodificar cache JSON: {e}")
-                return None
-            except Exception as e:
-                logger.error(f"Erro ao carregar cache: {e}")
-                return None
+            return self._carregar_cache_sem_lock()
     
     def salvar_cache(
         self, 
@@ -82,7 +91,8 @@ class IPCACache:
                 
                 # Verificar se precisa atualizar
                 if not forcar:
-                    cache_existente = self.carregar_cache()
+                    # Usar método sem lock para evitar deadlock
+                    cache_existente = self._carregar_cache_sem_lock()
                     if cache_existente:
                         dados_existentes = cache_existente.get("dados", {})
                         
@@ -146,6 +156,7 @@ class IPCACache:
         Returns:
             Tuple (precisa_atualizar, motivo)
         """
+        # Usar método COM lock (público)
         cache_data = self.carregar_cache()
         
         if not cache_data:
