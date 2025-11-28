@@ -187,6 +187,9 @@ async def _processar_assincrono(
     # Armazenar anos esperados
     anos_esperados = None
     
+    # Flag para controlar se backend já disse que está completo
+    backend_disse_completo = False
+    
     while True:
         if cancel_event and cancel_event.is_set():
             logger.info("Cancelamento durante processamento assíncrono")
@@ -200,12 +203,25 @@ async def _processar_assincrono(
             logger.error(f"Erro ao verificar status: {e}")
             break
         
+        # Verificar status do backend PRIMEIRO
+        if status_data.get("status") == "concluido":
+            backend_disse_completo = True
+            logger.info("Backend marcou como concluído")
+        
         # Capturar total de anos esperados na primeira consulta
-        if anos_esperados is None and "anos_concluidos" in status_data:
+        if anos_esperados is None:
             anos_concluidos_resp = status_data.get("anos_concluidos", [])
             anos_pendentes_resp = status_data.get("anos_pendentes", [])
-            if anos_concluidos_resp or anos_pendentes_resp:
+            
+            # Também verificar dados_parciais_por_ano
+            dados_parciais = status_data.get("dados_parciais_por_ano", {})
+            if dados_parciais:
+                anos_com_dados = {int(ano) for ano in dados_parciais.keys()}
+                anos_esperados = anos_com_dados | set(anos_concluidos_resp) | set(anos_pendentes_resp)
+            elif anos_concluidos_resp or anos_pendentes_resp:
                 anos_esperados = set(anos_concluidos_resp) | set(anos_pendentes_resp)
+            
+            if anos_esperados:
                 logger.info(f"Total de anos esperados: {len(anos_esperados)} - {sorted(anos_esperados)}")
         
         dados_por_ano = DataExtractor.extrair_dados_de_resposta(status_data)
@@ -264,30 +280,26 @@ async def _processar_assincrono(
         else:
             tentativas_sem_mudanca += 1
         
-        # Verificar se TODOS os anos esperados foram processados
-        if anos_esperados and len(anos_ja_processados) >= len(anos_esperados):
+        # Verificação mais robusta para finalizar
+        # Condição 1: Temos anos esperados E processamos todos
+        todos_anos_processados = anos_esperados and len(anos_ja_processados) >= len(anos_esperados)
+        
+        # Condição 2: Backend disse completo E (temos anos processados OU passou tempo suficiente)
+        backend_completo_com_dados = backend_disse_completo and (
+            len(anos_ja_processados) > 0 or tentativas_sem_mudanca >= 3
+        )
+        
+        if todos_anos_processados or backend_completo_com_dados:
+            motivo = "todos os anos processados" if todos_anos_processados else "backend confirmou conclusão"
             logger.info(
-                f"Todos os {len(anos_esperados)} anos esperados foram processados. "
-                f"Anos processados: {sorted(anos_ja_processados)}"
+                f"Finalizando consulta - {motivo}. "
+                f"Anos processados: {len(anos_ja_processados)}/{len(anos_esperados) if anos_esperados else '?'}"
             )
             
             # Aguardar um pouco para garantir que todos os eventos foram enviados
             await asyncio.sleep(1)
             
-            # Verificar novamente se backend confirmou conclusão
-            try:
-                status_final = await api_client.verificar_status_consulta(id_consulta)
-                if status_final.get("status") != "concluido":
-                    logger.warning(
-                        f"Backend ainda não marcou como concluído. Status: {status_final.get('status')}"
-                    )
-                    # Aguardar mais um pouco
-                    await asyncio.sleep(2)
-            except Exception as e:
-                logger.error(f"Erro ao verificar status final: {e}")
-            
-            # Enviar evento completo AGORA
-            logger.info("Enviando evento COMPLETO após confirmar todos os anos processados")
+            # Enviar evento completo
             yield {
                 "status": "completo",
                 "total_registros": len(todos_dados),
@@ -302,28 +314,7 @@ async def _processar_assincrono(
             }
             break
         
-        # Verificar status do backend apenas como fallback
-        if status_data.get("status") == "concluido":
-            logger.warning(
-                f"Backend marcou como concluído, mas processamos apenas "
-                f"{len(anos_ja_processados)} anos de {len(anos_esperados) if anos_esperados else '?'}"
-            )
-            
-            # Se backend disse que está completo, respeitar
-            yield {
-                "status": "completo",
-                "total_registros": len(todos_dados),
-                "total_nao_processados": len(total_dados_nao_processados),
-                "dados": [],
-                "dados_nao_processados": total_dados_nao_processados,
-                "periodo_base_ipca": periodo_base,
-                "ipca_referencia": ipca_base,
-                "tipo_correcao": tipo_correcao,
-                "dados_por_ano": DataOrganizer.reorganizar_por_ano(todos_dados),
-                "observacao": "Concluído pelo backend antes de processar todos os anos esperados"
-            }
-            break
-        
+        # Timeout (fallback)
         if tentativas_sem_mudanca >= max_tentativas:
             logger.warning(f"Timeout após {tentativas_sem_mudanca * 2}s")
             yield _criar_resposta_final(

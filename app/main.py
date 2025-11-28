@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import logging
 import os
 from app.utils.html_content import html_content
