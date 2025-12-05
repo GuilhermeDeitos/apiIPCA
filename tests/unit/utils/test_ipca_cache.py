@@ -236,12 +236,15 @@ class TestIPCACacheVerificarAtualizacao:
     
     def test_verificar_cache_atualizado_recente(self, cache_instance, dados_ipca_mock):
         """Testa quando cache está atualizado (menos de 30 dias)."""
-        # Cache de 10 dias atrás, não no início do mês
-        data_recente = datetime.now() - timedelta(days=10)
+        hoje = datetime.now()
         
-        # Garantir que não está no início do mês
-        if data_recente.day <= 5:
-            data_recente = data_recente.replace(day=10)
+        # para não cair na regra de "início do mês - verificar novos dados"
+        if hoje.day <= 5:
+            # Usar uma data do mesmo mês (por exemplo, dia 1 do mês atual)
+            data_recente = hoje.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            # Fora do início do mês, usar 10 dias atrás está ok
+            data_recente = hoje - timedelta(days=10)
         
         cache_data = {
             "ultima_atualizacao": data_recente.isoformat(),

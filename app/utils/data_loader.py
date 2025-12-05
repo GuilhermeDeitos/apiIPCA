@@ -206,21 +206,29 @@ async def _processar_assincrono(
                 backend_disse_completo = True
                 logger.info("Backend marcou como concluído")
         
-        # Capturar total de anos esperados
+        # Capturar total de anos esperados - AGORA TAMBÉM DO STATUS COMPLETO
         if anos_esperados is None:
             anos_concluidos_resp = status_data.get("anos_concluidos", [])
             anos_pendentes_resp = status_data.get("anos_pendentes", [])
             dados_parciais = status_data.get("dados_parciais_por_ano", {})
+            dados_por_ano_resp = status_data.get("dados_por_ano", {})
+            anos_processados_resp = status_data.get("anos_processados", [])
             
-            if dados_parciais:
+            # Prioridade: dados_por_ano (completo) > dados_parciais > anos_processados
+            if dados_por_ano_resp:
+                anos_esperados = {int(ano) for ano in dados_por_ano_resp.keys()}
+            elif dados_parciais:
                 anos_com_dados = {int(ano) for ano in dados_parciais.keys()}
                 anos_esperados = anos_com_dados | set(anos_concluidos_resp) | set(anos_pendentes_resp)
+            elif anos_processados_resp:
+                anos_esperados = set(anos_processados_resp)
             elif anos_concluidos_resp or anos_pendentes_resp:
                 anos_esperados = set(anos_concluidos_resp) | set(anos_pendentes_resp)
             
             if anos_esperados:
                 logger.info(f"Total de anos esperados: {len(anos_esperados)} - {sorted(anos_esperados)}")
         
+        # Extrair dados - usa dados_por_ano OU dados_parciais_por_ano
         dados_por_ano = DataExtractor.extrair_dados_de_resposta(status_data)
         
         if dados_por_ano:
@@ -275,14 +283,12 @@ async def _processar_assincrono(
         else:
             tentativas_sem_mudanca += 1
         
-        # MUDANÇA CRÍTICA: APENAS uma condição - todos os anos processados
+        # Finalizar quando todos os anos forem processados
         if anos_esperados and len(anos_ja_processados) >= len(anos_esperados):
             logger.info(
                 f"Finalizando consulta - TODOS os anos processados. "
                 f"Anos: {len(anos_ja_processados)}/{len(anos_esperados)}"
             )
-            
-            await asyncio.sleep(0.5)  # Pequena pausa final
             
             yield {
                 "status": "completo",
@@ -298,7 +304,7 @@ async def _processar_assincrono(
             }
             break
         
-        # Timeout mais longo (2 minutos) como fallback
+        # Timeout como fallback
         if tentativas_sem_mudanca >= max_tentativas:
             logger.warning(
                 f"Timeout após {tentativas_sem_mudanca * 0.5}s. "
